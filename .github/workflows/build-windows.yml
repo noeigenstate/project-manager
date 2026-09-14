@@ -20,6 +20,9 @@ jobs:
     name: Windows x64 build and desktop tests
     runs-on: windows-latest
     timeout-minutes: 25
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      binary: ${{ steps.version.outputs.binary }}
     defaults:
       run:
         shell: pwsh
@@ -38,6 +41,17 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+
+      - name: Validate release version
+        id: version
+        run: |
+          $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw 'Invalid package version.' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw 'The version tag must match package.json.'
+          }
+          "version=$version" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+          "binary=Project-Grid-$version-win-x64.exe" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
@@ -98,3 +112,69 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the tested Windows build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: Project-Grid-windows-x64
+          path: release-assets
+
+      - name: Verify and publish release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.windows.outputs.version }}
+          RELEASE_BINARY: ${{ needs.windows.outputs.binary }}
+        run: |
+          set -euo pipefail
+          test "$RELEASE_TAG" = "v$RELEASE_VERSION"
+          cd release-assets
+          test -f "$RELEASE_BINARY"
+          sha256sum --check SHA256SUMS.txt
+
+          cat > release-notes.md <<EOF
+          Windows x64 portable build of Project Grid.
+
+          Download **$RELEASE_BINARY** below and double-click it to run.
+          Codex CLI must be installed separately on the target computer.
+
+          - Multiple project terminals with completion alerts.
+          - Fullscreen project view, collapsible file explorer, and frosted glass interface.
+          - Verified with unit tests and packaged desktop tests, including real terminal button clicks.
+
+          Commit: $GITHUB_SHA
+          Build: https://github.com/$GH_REPO/actions/runs/$GITHUB_RUN_ID
+          SHA-256 checksums are attached in **SHA256SUMS.txt**.
+          EOF
+
+          flags=(--latest)
+          if [[ "$RELEASE_VERSION" == *-* ]]; then flags=(--prerelease --latest=false); fi
+
+          if gh release view "$RELEASE_TAG" --json isDraft,targetCommitish,assets > existing-release.json 2>/dev/null; then
+            # A rerun may finish its own draft, but must never replace a published binary.
+            jq -e --arg commit "$GITHUB_SHA" '.targetCommitish == $commit' existing-release.json
+            if [[ "$(jq -r '.isDraft' existing-release.json)" == 'false' ]]; then
+              jq -e --arg binary "$RELEASE_BINARY" 'any(.assets[]; .name == $binary) and any(.assets[]; .name == "SHA256SUMS.txt")' existing-release.json
+              echo "Release $RELEASE_TAG is already published."
+              exit 0
+            fi
+            gh release upload "$RELEASE_TAG" "$RELEASE_BINARY" SHA256SUMS.txt BUILD-INFO.txt --clobber
+            gh release edit "$RELEASE_TAG" --draft=false --title "Project Grid $RELEASE_TAG" --notes-file release-notes.md "${flags[@]}"
+          else
+            gh release create "$RELEASE_TAG" "$RELEASE_BINARY" SHA256SUMS.txt BUILD-INFO.txt \
+              --verify-tag --target "$GITHUB_SHA" --title "Project Grid $RELEASE_TAG" \
+              --notes-file release-notes.md "${flags[@]}"
+          fi
+
+          echo "Release: https://github.com/$GH_REPO/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"

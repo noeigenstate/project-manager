@@ -4,6 +4,8 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 
 ## 使用
 
+从 [Releases](https://github.com/noeigenstate/project-manager/releases/latest) 下载 Windows `.exe` 即可使用。正式版本在 Releases 中长期保留，普通 CI 构建仍可从 Actions 的 Artifacts 下载。
+
 打包后的应用位于 `release/`。双击 `Project-Grid-0.2.1-win-x64.exe` 即可启动，也可以打开 `release/win-unpacked/Project Grid.exe`。更新时，在旧版设置或托盘菜单中退出应用后再启动新版；项目列表与完成标记会保留。
 
 1. 点击 **添加项目**，选择一个或多个项目目录。
@@ -90,7 +92,18 @@ npm run dist
 - 桌面回归测试会实际点击「启动终端」，覆盖网格和全屏，确认按键不被遮挡，再检查真实 PowerShell 与 Codex CLI 启动。
 - Codex 检查只运行版本和配置命令，不调用模型，不需要 API 密钥或 ChatGPT 登录。
 - 构建通过后，在对应运行的 **Artifacts** 中下载 **Project-Grid-windows-x64**，解压后双击 `.exe`。产物保留 30 天；测试截图保留 7 天。
-- 工作流不会自动发布 GitHub Release，也不会将本机的项目设置上传到仓库。
+- 推送与 `package.json` 一致的版本标签（如 `v0.2.1`）时，构建与测试通过后会自动创建 GitHub Release，并附上 `.exe`、SHA-256 校验文件和构建信息；普通 `main` 推送只生成 Artifacts。
+- 发布任务会重新校验下载产物，只为发布阶段申请仓库写权限。已发布的版本不会被重跑任务覆盖；预发布版本会标为 prerelease。
+- GitHub Packages 面向 npm、NuGet、容器等软件包；本项目以 Windows 可执行文件交付，下载入口是 Releases。
+
+发布新版本时，先提交代码，再执行：
+
+```powershell
+npm version patch
+git push origin main --follow-tags
+```
+
+版本标签必须与 `package.json` 的版本一致，否则工作流会停止发布。
 
 终端使用 xterm.js + node-pty，主进程使用 Electron。渲染器禁用 Node 集成并开启隔离和沙箱，通过限定 IPC 访问终端。完成通知通过每次运行随机命名的本地管道发送，并校验独立终端的会话令牌。前端资源全部随应用打包。
 
