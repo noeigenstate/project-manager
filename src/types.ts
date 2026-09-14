@@ -1,0 +1,43 @@
+export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+export type Project = {
+  id: string; name: string; path: string; branch: string; unread: number; done: boolean;
+  lastCompletedAt: number | null; lastActivityAt: number | null;
+  sessionId: string | null; status: 'stopped' | 'starting' | 'shell' | 'codex' | 'exited';
+  codexActive: boolean; shellReady: boolean; codexAvailable: boolean | null; error: string | null;
+};
+export type Settings = { columns: number; notifications: boolean; sound: boolean; closeToTray: boolean; explorerCollapsed: boolean; fontSize: number };
+export type Workspace = { projects: Project[]; settings: Settings; warning: string | null; platform: string; version: string };
+export type TerminalSnapshot = { sessionId: string | null; seq: number; data: string };
+export type TerminalPacket = TerminalSnapshot & { id: string };
+export type FileEntry = { name: string; path: string; kind: 'directory' | 'file' | 'link' };
+export type DirectoryListing = { path: string; entries: FileEntry[]; total: number; nextOffset: number | null };
+export type FilePreview = { path: string; name: string; size: number; modifiedAt: number } & (
+  { kind: 'text'; content: string } | { kind: 'unsupported'; reason: string }
+);
+export type Bridge = {
+  getState(): Promise<Result<Workspace>>;
+  addProjects(): Promise<Result<string[]>>;
+  removeProject(id: string): Promise<Result<boolean>>;
+  acknowledge(id: string): Promise<Result<void>>;
+  markDone(id: string, done: boolean): Promise<Result<void>>;
+  acknowledgeAll(): Promise<Result<void>>;
+  settings(patch: Partial<Settings>): Promise<Result<void>>;
+  openInCode(id: string, relativePath?: string): Promise<Result<void>>;
+  listDirectory(id: string, relativePath?: string, offset?: number): Promise<Result<DirectoryListing>>;
+  readFile(id: string, relativePath: string): Promise<Result<FilePreview>>;
+  revealProject(id: string): Promise<Result<void>>;
+  startTerminal(id: string): Promise<Result<void>>;
+  restartTerminal(id: string): Promise<Result<boolean>>;
+  attachTerminal(id: string): Promise<Result<TerminalSnapshot>>;
+  launchCodex(id: string): Promise<Result<void>>;
+  writeTerminal(id: string, data: string): void;
+  resizeTerminal(id: string, cols: number, rows: number): void;
+  copy(text: string): Promise<Result<void>>;
+  onState(callback: (state: Workspace) => void): () => void;
+  onTerminalData(callback: (packet: TerminalPacket) => void): () => void;
+  onFocusProject(callback: (id: string) => void): () => void;
+  onError(callback: (message: string) => void): () => void;
+  minimize(): void; maximize(): void; close(): void; focusMode(enabled: boolean): void;
+  quit(): Promise<Result<boolean>>;
+};
+declare global { interface Window { projectGrid: Bridge; } }

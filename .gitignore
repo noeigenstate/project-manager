@@ -1,0 +1,8 @@
+node_modules/
+dist/
+release/
+.test-output/
+*.log
+docs/overview.png
+docs/project-view.png
+test-results/

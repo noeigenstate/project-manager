@@ -1,0 +1,56 @@
+{
+  "name": "project-grid",
+  "productName": "Project Grid",
+  "version": "0.2.1",
+  "description": "多个项目、多个真实终端，Codex 完成后一眼可见。",
+  "author": "Project Grid",
+  "license": "MIT",
+  "private": true,
+  "repository": { "type": "git", "url": "https://github.com/noeigenstate/project-manager.git" },
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "node scripts/start.mjs",
+    "dev": "node scripts/start.mjs --dev",
+    "build": "tsc --noEmit && vite build",
+    "test": "node --test tests/*.test.cjs",
+    "test:desktop": "node scripts/smoke.mjs",
+    "dist": "node -e \"require('electron')\" && npm run build && electron-builder --win portable --x64",
+    "pack": "node -e \"require('electron')\" && npm run build && electron-builder --win --dir --x64"
+  },
+  "dependencies": {
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "latest",
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3",
+    "playwright": "1.63.0",
+    "typescript": "^5.9.3",
+    "vite": "8.3.0"
+  },
+  "build": {
+    "appId": "local.projectgrid.desktop",
+    "productName": "Project Grid",
+    "directories": { "output": "release" },
+    "electronDist": "node_modules/electron/dist",
+    "files": ["dist/**/*", "electron/**/*", "assets/**/*", "package.json"],
+    "extraResources": [{ "from": "integration", "to": "integration" }],
+    "asarUnpack": ["node_modules/node-pty/**/*"],
+    "npmRebuild": false,
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "signExecutable": false,
+      "artifactName": "Project-Grid-${version}-win-x64.${ext}"
+    }
+  }
+}

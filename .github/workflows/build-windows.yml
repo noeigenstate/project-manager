@@ -1,0 +1,100 @@
+name: Build Windows executable
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows x64 build and desktop tests
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CI: 'true'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Codex CLI for offline startup checks
+        run: npm install --global @openai/codex@0.154.0 --no-audit --no-fund
+
+      - name: Run unit and integration tests
+        run: npm test
+
+      - name: Build portable Windows executable
+        run: npm run dist
+
+      - name: Verify desktop with actual terminal button clicks
+        run: npm run test:desktop -- --packaged
+
+      - name: Create checksum and build notes
+        run: |
+          $executables = @(Get-ChildItem -LiteralPath release -Filter 'Project-Grid-*-win-x64.exe')
+          if ($executables.Count -ne 1) { throw 'Expected exactly one portable executable.' }
+          $binary = $executables[0]
+          $digest = (Get-FileHash -LiteralPath $binary.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$digest  $($binary.Name)" | Set-Content -LiteralPath release/SHA256SUMS.txt -Encoding utf8
+          @(
+            'Project Grid — Windows x64 portable build'
+            "Commit: $env:GITHUB_SHA"
+            "File: $($binary.Name)"
+            'Download the artifact below and extract it, then run the .exe.'
+            'Codex CLI must be installed separately on the target computer.'
+          ) | Set-Content -LiteralPath release/BUILD-INFO.txt -Encoding utf8
+          @(
+            '## Windows build is ready'
+            "- Executable: **$($binary.Name)**"
+            "- Commit: $env:GITHUB_SHA"
+            '- Unit tests and packaged desktop tests passed, including actual Start terminal clicks.'
+            '- Download **Project-Grid-windows-x64** from the Artifacts section of this run.'
+            "- SHA-256: $digest"
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+
+      - name: Upload verified executable
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Project-Grid-windows-x64
+          path: |
+            release/Project-Grid-*-win-x64.exe
+            release/SHA256SUMS.txt
+            release/BUILD-INFO.txt
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload desktop test screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-test-screenshots
+          path: .test-output/desktop-*/*.png
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
