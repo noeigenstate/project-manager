@@ -6,7 +6,7 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 
 从 [Releases](https://github.com/noeigenstate/project-manager/releases/latest) 下载 Windows `.exe` 即可使用。正式版本在 Releases 中长期保留，普通 CI 构建仍可从 Actions 的 Artifacts 下载。
 
-打包后的应用位于 `release/`。双击 `Project-Grid-0.2.2-win-x64.exe` 即可启动，也可以打开 `release/win-unpacked/Project Grid.exe`。更新时，在旧版设置或托盘菜单中退出应用后再启动新版；项目列表与完成标记会保留。
+打包后的应用位于 `release/`。双击 `Project-Grid-0.2.3-win-x64.exe` 即可启动，也可以打开 `release/win-unpacked/Project Grid.exe`。更新时，在旧版设置或托盘菜单中退出应用后再启动新版；项目列表与完成标记会保留。
 
 1. 点击 **添加项目**，选择一个或多个项目目录。
 2. 在每个方框里输入 `codex`，或者点击 **启动 Codex**。已经保存的对话可以用 `codex resume` 选择；若会话仍在其他窗口运行，先在原窗口结束当前会话，再在这里恢复。
@@ -26,7 +26,7 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 - 点击文件可在应用中只读预览，关闭预览或点击「返回终端」可继续操作同一个终端。
 - 支持 UTF-8 与带 BOM 的 UTF-16 文本预览，文件大小上限 1 MiB；二进制、过大或其他编码的文件可以通过「在 VS Code 打开文件」查看。
 - 目录按需读取，大目录每页 200 项，可以继续加载；不会预先递归扫描整个项目。项目外的链接目标不在文件预览范围内。
-- 背景采用天空蓝与植物绿的渐变，工具栏、侧栏和终端面板使用统一的半透明材质与背景虚化，终端字符保持清晰；遵循系统减少动态和减少透明度偏好。
+- 背景是一幅树叶间透出蓝天白云的油画，图片随应用离线打包。工具栏、侧栏和终端面板叠加半透明材质与轻微背景虚化，保留树影轮廓和清晰文字；遵循系统减少动态和减少透明度偏好。背景生成说明见 [background-art.md](docs/background-art.md)。
 - 新建终端会清除从父进程继承的 `NO_COLOR` 等禁用颜色标记，并启用 truecolor 终端能力，保留 Codex 和其他命令的 ANSI 颜色。旧终端需要在更新后重启才能使用新的环境设置。
 
 ## 状态

@@ -1,7 +1,7 @@
 /* Frosted surfaces share one material. Blur only the backdrop; text stays sharp. */
 :root {
-  color: #e0e8f2; background: #173f45;
-  --glass: rgba(21, 42, 49, .64);
+  color: #e0e8f2; background: #283e38;
+  --glass: rgba(17, 29, 34, .70);
   --glass-strong: rgba(28, 40, 55, .82);
   --glass-border: rgba(215, 234, 255, .17);
   --glass-highlight: rgba(237, 247, 255, .08);
@@ -10,15 +10,13 @@
 .app-shell {
   isolation: isolate;
   background:
-    linear-gradient(rgba(8, 28, 35, .24), rgba(8, 28, 35, .24)),
-    radial-gradient(ellipse at 82% 0%, rgba(108, 194, 239, .72), transparent 67%),
-    radial-gradient(ellipse at 12% 100%, rgba(75, 163, 83, .72), transparent 65%),
-    linear-gradient(160deg, #286887 0%, #245966 48%, #205d36 100%);
+    linear-gradient(rgba(10, 22, 27, .24), rgba(10, 22, 27, .24)),
+    url('./assets/sky-canopy-oil.png') center / cover no-repeat;
 }
 .titlebar, .workspace-statusbar, .focus-sidebar, .project-panel, .settings-dialog, .file-preview {
-  backdrop-filter: blur(26px) saturate(125%);
+  backdrop-filter: blur(6px) saturate(110%);
 }
-.titlebar { height: 42px; flex-basis: 42px; background: rgba(20, 29, 42, .48); border-color: rgba(222, 239, 255, .11); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .045); }
+.titlebar { height: 42px; flex-basis: 42px; background: rgba(18, 29, 37, .66); border-color: rgba(222, 239, 255, .11); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .045); }
 .titlebar-brand { padding-left: 22px; gap: 11px; color: #e3ebf5; }
 .titlebar-subtitle { color: #9eafc2; }.titlebar-center { color: #8ca0b6; }
 .titlebar-divider { background: #bdd9f32d; }
@@ -26,7 +24,7 @@
 .icon-button { color: #a4b5c9; border-radius: 6px; }
 .icon-button:hover { color: #f1f7ff; background: rgba(199, 222, 255, .1); }
 .main-workspace { background: transparent; }
-.workspace-header { display: grid; grid-template-columns: minmax(180px, 235px) minmax(0, 1fr) auto; padding: 22px 28px; gap: 22px; align-items: center; background: rgba(7, 29, 37, .12); }
+.workspace-header { display: grid; grid-template-columns: minmax(180px, 235px) minmax(0, 1fr) auto; padding: 22px 28px; gap: 22px; align-items: center; background: rgba(12, 27, 33, .60); backdrop-filter: blur(10px); }
 .workspace-summary { min-width: 0; }
 .workspace-summary p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .workspace-header p { color: #c2dbe1; font-size: 11px; }
@@ -69,16 +67,16 @@ kbd { border-color: #dbeeff26; color: #8ca3bd; background: #e9f4ff06; }
 .terminal-host .xterm-viewport { background-color: transparent !important; }
 .terminal-host ::-webkit-scrollbar-track, .terminal-host ::-webkit-scrollbar-corner { background: transparent; }
 .terminal-empty { color: #a2b8d1; }.terminal-empty p { color: #d0dfee; }.terminal-empty > span { color: #9aadbf; }
-.project-panel.has-unread { background: rgba(51, 37, 51, .54); border-color: #f18495; }
+.project-panel.has-unread { background: rgba(51, 37, 51, .72); border-color: #f18495; }
 .has-unread .panel-header { background: rgba(203, 114, 141, .095); border-color: #f1a7b628; }
 .attention-callout { color: #ffced5; background: rgba(91, 47, 68, .78); border-color: #ef9ca85c; box-shadow: inset 0 1px 0 #ffffff0c, 0 5px 18px #0c101c4d; backdrop-filter: blur(18px); border-radius: 7px; }
 .attention-overlay:hover { background: #fdc4cf05; }
-.project-panel.is-done { background: rgba(31, 55, 51, .52); border-color: #8cc9a778; box-shadow: inset 0 1px 0 #c8ffe51a, 0 8px 28px #06181122; animation: none; }
+.project-panel.is-done { background: rgba(31, 55, 51, .72); border-color: #8cc9a778; box-shadow: inset 0 1px 0 #c8ffe51a, 0 8px 28px #06181122; animation: none; }
 .is-done .panel-header { background: #a4e6c40c; border-color: #c1ffde1a; }
 @keyframes attention-border { 0%, 100% { border-color: #f394a4; box-shadow: inset 0 1px 0 #ffdde515, 0 0 0 1px #f3a5b05b, 0 0 20px #f7789820; } 50% { border-color: #a35f758c; box-shadow: inset 0 1px 0 #ffdde508, 0 0 0 1px #ee859a0a; } }
 .dropdown { background: rgba(40, 54, 74, .95); border-color: #e2f0ff38; border-radius: 8px; box-shadow: inset 0 1px 0 #ffffff0c, 0 12px 30px #08121f60; backdrop-filter: blur(24px); }
 .dropdown button { color: #d1e0f1; }.dropdown button:hover { background: #e3f2ff15; }.menu-divider { background: #e1efff21; }
-.workspace-statusbar { background: rgba(18, 29, 44, .46); border-color: #e4f3ff18; padding: 0 28px; color: #a0b3cb; height: 28px; flex-basis: 28px; }
+.workspace-statusbar { background: rgba(18, 29, 39, .68); border-color: #e4f3ff18; padding: 0 28px; color: #a0b3cb; height: 28px; flex-basis: 28px; }
 .empty-workspace p { color: #a2b4ca; }.empty-workspace h2 { color: #e3edf9; }.empty-workspace > .eyebrow { color: #a9bdd5; }
 .empty-hints { color: #a1b6cf; }.empty-illustration .illustration-tile { background: #d2e9ff0d; border-color: #dfedff38; box-shadow: inset 0 1px 0 #ffffff0c; }
 .empty-illustration .red-tile { background: #d7809717; border-color: #ec9aaa60; }.empty-illustration .green-tile { background: #86cda618; border-color: #8fcaa355; }
@@ -90,7 +88,7 @@ kbd { border-color: #dbeeff26; color: #8ca3bd; background: #e9f4ff06; }
 .eyebrow { font-size: 10px; font-weight: 500; letter-spacing: 1.5px; color: #9cafc7; }
 
 /* A project gets its own explorer only while focused. */
-.focus-sidebar { display: flex; flex-direction: column; width: 284px; flex: 0 0 284px; min-height: 0; background: rgba(43, 58, 76, .43); border-right: 1px solid #e3f1ff25; box-shadow: inset -1px 0 0 #ffffff03; transition: width .18s ease, flex-basis .18s ease; }
+.focus-sidebar { display: flex; flex-direction: column; width: 284px; flex: 0 0 284px; min-height: 0; background: rgba(24, 38, 42, .72); border-right: 1px solid #e3f1ff25; box-shadow: inset -1px 0 0 #ffffff03; transition: width .18s ease, flex-basis .18s ease; }
 .explorer-navigation { display: flex; align-items: center; gap: 8px; margin: 16px 13px 0; }
 .explorer-back { display: flex; flex: 1; align-items: center; gap: 10px; height: 35px; border: 1px solid #e0efff24; border-radius: 6px; padding: 0 10px; color: #d8e7f8; background: #dcefff09; font-size: 12px; white-space: nowrap; }
 .explorer-back:hover { border-color: #e0efff45; background: #dcefff14; }
