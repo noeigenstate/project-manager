@@ -31,6 +31,10 @@ for (const name of names) {
 }
 await fs.writeFile(path.join(dataDir, 'workspace.json'), JSON.stringify({ version: 1, projects, settings: { columns: 3, notifications: false, sound: false, closeToTray: true, fontSize: 12 } }));
 const env = { ...process.env, PROJECT_GRID_DATA_DIR: dataDir };
+env.NO_COLOR = '1';
+env.NODE_DISABLE_COLORS = '1';
+env.FORCE_COLOR = '0';
+env.TERM = 'dumb';
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.PROJECT_GRID_DEV_URL;
 let application;
@@ -80,17 +84,32 @@ try {
   }, 'six PowerShell terminals ready');
   console.log('PASS: real button clicks start six ConPTY terminals in grid and fullscreen views');
 
-  await page.evaluate(id => window.projectGrid.writeTerminal(id, '\x1b[1;1R'), projects[0].id);
-  const readyAfterReport = (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady;
-  assert.equal(readyAfterReport, true, 'automatic terminal replies must not disable the Codex start button');
+  const colorProof = path.join(projects[0].path, 'color-env.json');
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, "[IO.File]::WriteAllText((Join-Path (Get-Location).Path 'color-env.json'), (@{NoColor=$env:NO_COLOR;DisableColors=$env:NODE_DISABLE_COLORS;ForceColor=$env:FORCE_COLOR;Term=$env:TERM;ColorTerm=$env:COLORTERM} | ConvertTo-Json -Compress))\r"), projects[0].id);
+  await waitFor(async () => { try { return !!JSON.parse(await fs.readFile(colorProof, 'utf8')); } catch { return false; } }, 'color environment proof');
+  const colorEnv = JSON.parse(await fs.readFile(colorProof, 'utf8'));
+  assert.ok(!colorEnv.NoColor && !colorEnv.DisableColors && !colorEnv.ForceColor);
+  assert.equal(colorEnv.Term, 'xterm-256color');
+  assert.equal(colorEnv.ColorTerm, 'truecolor');
+  await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady, 'prompt after color check');
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, "Write-Host (([string][char]27) + '[31mRED ' + ([string][char]27) + '[32mGREEN ' + ([string][char]27) + '[34mBLUE ' + ([string][char]27) + '[38;2;255;140;40mTRUECOLOR' + ([string][char]27) + '[0m')\r"), projects[0].id);
+  await waitFor(async () => {
+    return page.locator(`[data-project-id="${projects[0].id}"] .xterm-rows > div`).evaluateAll(rows => rows.some(row => {
+      if (row.textContent.trim() !== 'RED GREEN BLUE TRUECOLOR') return false;
+      const colors = new Set([...row.querySelectorAll('span')].filter(span => span.textContent.trim()).map(span => getComputedStyle(span).color));
+      return colors.size >= 4;
+    }));
+  }, 'ANSI and truecolor text render as four distinct colors');
+  await page.screenshot({ path: path.join(output, 'terminal-colors.png') });
+  console.log('PASS: inherited NO_COLOR is removed and ANSI/truecolor output reaches the terminal');
+  await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady, 'prompt after ANSI color output');
 
   await page.evaluate(id => window.projectGrid.writeTerminal(id, "[IO.File]::WriteAllText((Join-Path (Get-Location).Path 'cwd-proof.txt'), (Get-Location).Path)\r"), projects[3].id);
   await waitFor(async () => { try { return await fs.readFile(path.join(projects[3].path, 'cwd-proof.txt'), 'utf8') === projects[3].path; } catch { return false; } }, 'literal working directory with brackets, quotes, ampersand and dollar');
 
   await page.evaluate(id => window.projectGrid.writeTerminal(id, "Write-Output 'PROJECT_GRID_STREAM_OK'\r"), projects[0].id);
   await waitFor(async () => {
-    const result = await page.evaluate(id => window.projectGrid.attachTerminal(id), projects[0].id);
-    return result.ok && result.value.data.includes('PROJECT_GRID_STREAM_OK');
+    return page.locator(`[data-project-id="${projects[0].id}"] .xterm-rows > div`).evaluateAll(rows => rows.some(row => row.textContent.trim() === 'PROJECT_GRID_STREAM_OK'));
   }, 'terminal output');
   await page.evaluate(id => window.projectGrid.writeTerminal(id, 'codex --version\r'), projects[1].id);
   await waitFor(async () => {

@@ -9,6 +9,7 @@ const { WorkspaceStore } = require('./state.cjs');
 const { createEventServer } = require('./events.cjs');
 const { listDirectory, readProjectFile, resolveProjectPath } = require('./project-files.cjs');
 const { isTerminalResponse, acceptShellEvent } = require('./terminal-input.cjs');
+const { createTerminalEnvironment } = require('./terminal-env.cjs');
 
 const root = path.join(__dirname, '..');
 const integrationDir = app.isPackaged ? path.join(process.resourcesPath, 'integration') : path.join(root, 'integration');
@@ -146,10 +147,7 @@ function startTerminal(id) {
     projectId: id, projectPath: project.path, sessionKey, pipeName: eventServer.name,
     powershellPath, notifyPath: path.join(integrationDir, 'notify.ps1'),
   }), { mode: 0o600 });
-  const env = { ...process.env, PROJECT_GRID_BOOTSTRAP: bootstrapFile, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
-  delete env.ELECTRON_RUN_AS_NODE;
-  delete env.PROJECT_GRID_DATA_DIR;
-  delete env.PROJECT_GRID_DEV_URL;
+  const env = createTerminalEnvironment(process.env, bootstrapFile);
   const terminal = pty.spawn(powershellPath, ['-NoLogo', '-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', path.join(integrationDir, 'bootstrap.ps1')], {
     name: 'xterm-256color', cols: 90, rows: 22, cwd: project.path, env, useConpty: true,
   });

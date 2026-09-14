@@ -229,14 +229,8 @@ export function App() {
       <main className="main-workspace">
         {!focusedId && <>
           <div className="workspace-header">
-            <div><div className="workspace-heading"><h1>{filter === 'all' ? '全部项目' : filter === 'unread' ? '等待查看' : '开发完成'}</h1><span className="heading-count">{filter === 'all' ? projects.length : filter === 'unread' ? unread : done}</span></div><p>{projects.length ? `${active} 个 Codex 会话中${unread ? `，${unread} 个项目等待你查看` : '，所有项目尽在眼前'}` : '将项目放在一起，让每一次完成都看得见。'}</p></div>
-            <div className="workspace-header-actions">
-              <div className="search-input"><MagnifyingGlass size={16} /><input ref={queryInput} placeholder="搜索项目或路径…" aria-label="搜索项目" value={query} onChange={e => setQuery(e.target.value)} />{query ? <IconButton label="清除搜索" onClick={() => setQuery('')}><X size={13} /></IconButton> : <kbd>Ctrl K</kbd>}</div>
-              <button className="button primary" onClick={addProjects} disabled={adding}><FolderSimplePlus size={17} />{adding ? '选择目录中…' : '添加项目'}</button>
-              <IconButton label="工作台设置" onClick={() => setSettingsOpen(true)}><GearSix size={19} /></IconButton>
-            </div>
-          </div>
-          <div className="grid-toolbar">
+            <div className="workspace-summary"><div className="workspace-heading"><h1>{filter === 'all' ? '全部项目' : filter === 'unread' ? '等待查看' : '开发完成'}</h1><span className="heading-count">{filter === 'all' ? projects.length : filter === 'unread' ? unread : done}</span></div><p>{projects.length ? `${active} 个 Codex 会话中${unread ? `，${unread} 个项目等待你查看` : '，所有项目尽在眼前'}` : '将项目放在一起，让每一次完成都看得见。'}</p></div>
+            <div className="grid-toolbar">
             <nav className="project-filters" aria-label="项目分类">
               <button className={filter === 'all' ? 'selected' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}><SquaresFour size={15} /><span>全部项目</span><b>{projects.length}</b></button>
               <button className={`${filter === 'unread' ? 'selected' : ''} ${unread ? 'nav-attention' : ''}`} aria-pressed={filter === 'unread'} onClick={() => setFilter('unread')}><span className="filter-dot red" /><span>等待查看</span><b>{unread}</b></button>
@@ -246,6 +240,12 @@ export function App() {
               <div className="layout-selector" aria-label="网格列数"><span>布局</span>{[0, 2, 3, 4].map(n => <button title={n ? `${n} 列` : '自动布局'} key={n} aria-label={n ? `${n} 列布局` : '自动布局'} className={settings.columns === n ? 'chosen' : ''} onClick={() => setPreference({ columns: n })}>{n === 0 ? '自动' : <><span className={`layout-glyph cols-${n}`}>{Array.from({ length: n }, (_, i) => <i key={i} />)}</span><span>{n}</span></>}</button>)}</div>
               <span className="toolbar-divider" />
               <IconButton label={settings.notifications ? '关闭桌面通知' : '开启桌面通知'} className={settings.notifications ? 'notifications-on' : ''} onClick={() => setPreference({ notifications: !settings.notifications })}>{settings.notifications ? <Bell size={17} /> : <BellSlash size={17} />}</IconButton>
+            </div>
+            </div>
+            <div className="workspace-header-actions">
+              <div className="search-input"><MagnifyingGlass size={16} /><input ref={queryInput} placeholder="搜索项目或路径…" aria-label="搜索项目" value={query} onChange={e => setQuery(e.target.value)} />{query ? <IconButton label="清除搜索" onClick={() => setQuery('')}><X size={13} /></IconButton> : <kbd>Ctrl K</kbd>}</div>
+              <button className="button primary" onClick={addProjects} disabled={adding}><FolderSimplePlus size={17} />{adding ? '选择目录中…' : '添加项目'}</button>
+              <IconButton label="工作台设置" onClick={() => setSettingsOpen(true)}><GearSix size={19} /></IconButton>
             </div>
           </div>
         </>}
