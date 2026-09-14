@@ -7,10 +7,11 @@ const { randomUUID } = require('node:crypto');
 const pty = require('node-pty');
 const { WorkspaceStore } = require('./state.cjs');
 const { createEventServer } = require('./events.cjs');
-const { listDirectory, readProjectFile, resolveProjectPath } = require('./project-files.cjs');
+const { listDirectory, readProjectFile, resolveProjectPath, VIDEO_TYPES } = require('./project-files.cjs');
 const { isTerminalResponse, acceptShellEvent } = require('./terminal-input.cjs');
 const { createTerminalEnvironment } = require('./terminal-env.cjs');
-const { PreviewResources } = require('./preview-resources.cjs');
+const { PreviewResources, resourceResponse } = require('./preview-resources.cjs');
+const { resolveTerminalLink } = require('./terminal-links.cjs');
 
 const root = path.join(__dirname, '..');
 const integrationDir = app.isPackaged ? path.join(process.resourcesPath, 'integration') : path.join(root, 'integration');
@@ -154,7 +155,7 @@ function startTerminal(id) {
   }), { mode: 0o600 });
   const env = createTerminalEnvironment(process.env, bootstrapFile);
   const terminal = pty.spawn(powershellPath, ['-NoLogo', '-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', path.join(integrationDir, 'bootstrap.ps1')], {
-    name: 'xterm-256color', cols: 90, rows: 22, cwd: project.path, env, useConpty: true,
+    name: 'xterm-256color', cols: 90, rows: 22, cwd: project.path, env, useConpty: true, useConptyDll: true,
   });
   const s = {
     terminal, sessionId, sessionKey, bootstrapFile, status: 'starting', ready: false,
@@ -272,13 +273,24 @@ function registerIpc() {
     store.updateSettings(patch); broadcast();
   });
   handle('project:directory', (id, relativePath, offset) => listDirectory(findProject(id), relativePath, offset));
-  handle('project:file', async (id, relativePath) => {
+  handle('project:file', async (id, relativePath, pageIndex) => {
     const project = findProject(id);
-    const preview = await readProjectFile(project, relativePath);
-    if (preview.kind === 'image' || preview.kind === 'html') return { ...preview, ...previewResources.open(project, relativePath, preview.kind) };
+    const preview = await readProjectFile(project, relativePath, pageIndex);
+    if (['image', 'html', 'video'].includes(preview.kind)) return { ...preview, ...previewResources.open(project, relativePath, preview.kind, preview.mimeType) };
     return preview;
   });
   handle('project:preview-close', id => previewResources.close(id));
+  handle('project:open-link', async (id, target) => {
+    const link = await resolveTerminalLink(findProject(id), target);
+    if (link.kind === 'external') { await shell.openExternal(link.url); return { kind: 'external' }; }
+    if (link.kind === 'directory') { const error = await shell.openPath(link.path); if (error) throw new Error(error); return { kind: 'external' }; }
+    return link;
+  });
+  handle('project:open-video', async (id, relativePath) => {
+    const resolved = await resolveProjectPath(findProject(id), relativePath);
+    if (!VIDEO_TYPES[path.extname(resolved).toLowerCase()] || !(await fs.promises.stat(resolved)).isFile()) throw new Error('请选择一个视频文件。');
+    const error = await shell.openPath(resolved); if (error) throw new Error(error);
+  });
   handle('project:reveal', async id => { const error = await shell.openPath(findProject(id).path); if (error) throw new Error(error); });
   handle('project:code', async (id, relativePath) => {
     const project = findProject(id);
@@ -355,9 +367,7 @@ else {
       if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405 });
       try {
         const resource = await previewResources.resolve(request.url);
-        if (request.method === 'HEAD') return new Response(null, { headers: { ...resource.headers, 'Content-Length': String(resource.size) } });
-        const response = await electronNet.fetch(pathToFileURL(resource.path).toString());
-        return new Response(response.body, { status: response.status, headers: resource.headers });
+        return resourceResponse(resource, request);
       } catch { return new Response('文件不存在、超出项目范围，或预览已关闭。', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } }); }
     });
     registerIpc();
@@ -372,8 +382,9 @@ else {
     window.webContents.on('will-frame-navigate', event => {
       if (!event.isMainFrame && event.url !== 'about:blank' && !previewResources.hasUrl(event.url)) event.preventDefault();
     });
-    window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-    window.webContents.session.setPermissionCheckHandler(() => false);
+    const allowPlayerFullscreen = (contents, permission, details) => permission === 'fullscreen' && contents === window.webContents && details.isMainFrame === true;
+    window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => callback(allowPlayerFullscreen(contents, permission, details)));
+    window.webContents.session.setPermissionCheckHandler((contents, permission, _origin, details) => allowPlayerFullscreen(contents, permission, details));
     window.once('ready-to-show', () => window.show());
     window.webContents.on('render-process-gone', (_event, details) => {
       if (!quitting && details.reason !== 'clean-exit') window.reload();

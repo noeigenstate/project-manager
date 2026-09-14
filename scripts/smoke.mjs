@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -32,6 +33,11 @@ for (const name of names) {
 const previewProject = projects[0].path;
 await fs.mkdir(path.join(previewProject, 'reports'));
 await fs.copyFile(path.join(root, 'src/assets/sky-canopy-oil.png'), path.join(previewProject, 'image-preview.png'));
+await fs.copyFile(path.join(root, 'assets/icon.png'), path.join(previewProject, 'image-without-extension'));
+await fs.copyFile(path.join(root, 'tests/fixtures/preview.webm'), path.join(previewProject, 'preview.webm'));
+await fs.copyFile(path.join(root, 'tests/fixtures/preview.mp4'), path.join(previewProject, 'preview.mp4'));
+await fs.writeFile(path.join(previewProject, 'large.log'), 'LARGE_FILE_START\n' + '中文🙂大文件预览数据\n'.repeat(120000) + 'LARGE_FILE_END');
+await fs.writeFile(path.join(previewProject, 'large.html'), '<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><h1>大 HTML 页面</h1><!--' + ' '.repeat(2 * 1024 * 1024) + '--><footer>LARGE_HTML_END</footer></html>');
 await fs.writeFile(path.join(previewProject, 'assets', 'preview.css'), 'body{margin:0;background:rgb(240,246,252);color:#243342;font:16px system-ui}main{padding:32px}img{width:320px;max-width:90%;border-radius:12px}button{padding:10px 20px;background:#246b55;color:white;border:0;border-radius:6px}output{margin:16px}');
 await fs.writeFile(path.join(previewProject, 'assets', 'message.mjs'), 'export const message = "LOCAL MODULE READY";');
 await fs.writeFile(path.join(previewProject, 'assets', 'data.json'), JSON.stringify({ label: 'LOCAL JSON READY' }));
@@ -54,11 +60,18 @@ async function waitFor(fn, message, timeout = 20000) {
   throw new Error(`Timed out: ${message}`);
 }
 try {
-  application = await electron.launch({ executablePath: packaged ? path.join(root, 'release/win-unpacked/Project Grid.exe') : require('electron'), args: packaged ? [] : [root], cwd: root, env, timeout: 30000 });
+  const captureFlags = ['--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling'];
+  application = await electron.launch({ executablePath: packaged ? path.join(root, 'release/win-unpacked/Project Grid.exe') : require('electron'), args: [...(packaged ? [] : [root]), ...captureFlags], cwd: root, env, timeout: 30000 });
+  console.log(`Desktop test process: ${application.process().pid}; screenshots: ${output}`);
   application.process().stderr.on('data', data => { const text = data.toString(); if (/Uncaught|Error:|failed to load/i.test(text)) errors.push(text); });
   const page = await application.firstWindow();
-  await application.evaluate(({ ipcMain }) => {
+  await application.evaluate(({ ipcMain, shell, dialog, BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0].webContents.setBackgroundThrottling(false);
     globalThis.terminalTestInputs = [];
+    globalThis.openedLinks = [];
+    globalThis.addDialogCount = 0;
+    shell.openExternal = async url => { globalThis.openedLinks.push(url); };
+    dialog.showOpenDialog = async () => { globalThis.addDialogCount++; return { canceled: true, filePaths: [] }; };
     ipcMain.on('terminal:write', (_event, id, data) => {
       globalThis.terminalTestInputs.push({ id, data });
       if (globalThis.terminalTestInputs.length > 40) globalThis.terminalTestInputs.shift();
@@ -68,6 +81,13 @@ try {
   await page.waitForSelector('.project-panel', { timeout: 20000 });
   assert.equal(await page.locator('.project-panel').count(), 6);
   assert.equal(await page.locator('aside').count(), 0, 'overview has no sidebar');
+  assert.equal(await page.locator('.workspace-header, .grid-toolbar, .project-filters, .layout-selector').count(), 0);
+  const titlebar = page.locator('.titlebar');
+  assert.ok(await titlebar.getByRole('textbox', { name: '搜索项目', exact: true }).isVisible());
+  await titlebar.getByRole('button', { name: '添加项目', exact: true }).click();
+  assert.equal(await application.evaluate(() => globalThis.addDialogCount), 1, 'titlebar controls are clickable');
+  await page.keyboard.press('Control+k');
+  assert.equal(await page.getByRole('textbox', { name: '搜索项目', exact: true }).evaluate(input => input === document.activeElement), true);
   const material = await page.locator('.project-panel').first().evaluate(el => ({ filter: getComputedStyle(el).backdropFilter, reduced: matchMedia('(prefers-reduced-transparency: reduce)').matches, background: getComputedStyle(el).backgroundColor }));
   console.log('Glass material:', JSON.stringify(material));
   assert.ok(material.filter.includes('blur') || material.reduced);
@@ -215,6 +235,116 @@ try {
   await page.getByRole('button', { name: '返回终端', exact: true }).click();
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].sessionId, sessionBefore);
   console.log('PASS: PNG fit/original size/refresh and isolated HTML with CSS, modules, images, JSON and source toggle');
+
+  await page.getByRole('treeitem', { name: 'image-without-extension', exact: true }).click();
+  await waitFor(async () => page.locator('img.preview-image').evaluate(image => image.complete && image.naturalWidth === 256), 'image signature loads without an extension');
+  await page.getByRole('button', { name: '返回终端', exact: true }).click();
+  await page.getByRole('treeitem', { name: 'large.log', exact: true }).click();
+  await page.getByText('LARGE_FILE_START', { exact: false }).waitFor();
+  assert.ok(await page.getByRole('button', { name: '下一页', exact: true }).isEnabled());
+  assert.ok(await page.locator('.line-numbers > span').count() < 150, 'large files only render visible lines');
+  await page.locator('.file-code-scroll').evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await waitFor(async () => page.locator('.line-numbers > span').first().innerText().then(value => Number(value) > 100), 'virtual text scrolls to later lines');
+  await page.getByRole('button', { name: '末页', exact: true }).click();
+  await page.getByRole('button', { name: '首页', exact: true }).waitFor();
+  await page.locator('.file-code-scroll').evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await page.getByText('LARGE_FILE_END', { exact: false }).waitFor();
+  await page.getByRole('spinbutton', { name: '文件页码', exact: true }).fill('2');
+  await page.getByRole('button', { name: '跳转', exact: true }).click();
+  await waitFor(async () => page.getByRole('spinbutton', { name: '文件页码', exact: true }).inputValue().then(value => value === '2'), 'jump to large text page');
+  await page.screenshot({ path: path.join(output, 'large-file.png') });
+  await page.getByRole('button', { name: '返回终端', exact: true }).click();
+  await page.getByRole('treeitem', { name: 'large.html', exact: true }).click();
+  await page.frameLocator('iframe[title="HTML 页面预览"]').getByRole('heading', { name: '大 HTML 页面' }).waitFor();
+  await page.getByRole('button', { name: '源码', exact: true }).click();
+  await page.getByRole('button', { name: '末页', exact: true }).click();
+  await page.getByText('LARGE_HTML_END', { exact: false }).waitFor();
+  await page.getByRole('button', { name: '返回终端', exact: true }).click();
+  console.log('PASS: large text and HTML use bounded, Unicode-safe pages with virtual scrolling and page navigation');
+
+  for (const filename of ['preview.webm', 'preview.mp4']) {
+    await page.getByRole('treeitem', { name: filename, exact: true }).click();
+    const video = page.locator('video.preview-video');
+    await waitFor(async () => video.evaluate(node => node.readyState >= 2 && node.videoWidth === 320), `${filename} decodes in the desktop player`);
+    assert.equal(await video.evaluate(node => node.controls), true);
+    await video.evaluate(node => node.play());
+    await waitFor(async () => video.evaluate(node => !node.paused && node.currentTime > .15), `${filename} plays`);
+    await video.evaluate(node => { node.pause(); node.currentTime = 2.5; });
+    await waitFor(async () => video.evaluate(node => !node.seeking && Math.abs(node.currentTime - 2.5) < .2), `${filename} seeks using byte ranges`);
+    assert.equal(await video.evaluate(node => node.paused), true);
+    if (filename === 'preview.webm') {
+      await video.evaluate(node => Promise.race([node.requestFullscreen(), new Promise((_, reject) => setTimeout(() => reject(new Error('Video fullscreen did not settle')), 5000))]));
+      await waitFor(async () => page.evaluate(() => document.fullscreenElement?.tagName === 'VIDEO'), 'video fullscreen');
+      await page.evaluate(() => Promise.race([document.exitFullscreen(), new Promise((_, reject) => setTimeout(() => reject(new Error('Exit video fullscreen did not settle')), 5000))]));
+    }
+    const videoUrl = await video.getAttribute('src');
+    const rangeStatus = await application.evaluate(async ({ net }, url) => { const response = await net.fetch(url, { headers: { Range: 'bytes=0-15' } }); const data = await response.arrayBuffer(); return { status: response.status, length: data.byteLength }; }, videoUrl);
+    assert.deepEqual(rangeStatus, { status: 206, length: 16 });
+    await page.screenshot({ path: path.join(output, filename.replace('.', '-') + '.png') });
+    await page.getByRole('button', { name: '返回终端', exact: true }).click();
+  }
+  console.log('PASS: actual WebM and MP4 decoding, playback, pause, seeking and partial-content protocol responses');
+
+  const clickTerminalText = async (text, control = true) => {
+    const row = panel.locator('.xterm-rows > div').filter({ hasText: text }).last();
+    await row.waitFor();
+    const position = await row.evaluate((element, needle) => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const nodes = [];
+      let node;
+      while ((node = walker.nextNode())) nodes.push(node);
+      const all = nodes.map(node => node.textContent).join('');
+      let offset = all.indexOf(needle);
+      if (offset < 0) throw new Error(`Missing terminal text: ${needle}`);
+      for (const node of nodes) {
+        if (offset < node.textContent.length) {
+          const range = document.createRange();
+          range.setStart(node, offset); range.setEnd(node, offset + 1);
+          const rect = range.getBoundingClientRect();
+          const screenBox = element.closest('.xterm-screen').getBoundingClientRect();
+          return { x: rect.x - screenBox.x + rect.width / 2, y: rect.y - screenBox.y + rect.height / 2 };
+        }
+        offset -= node.textContent.length;
+      }
+      throw new Error('No terminal cell');
+    }, text);
+    const screen = panel.locator('.xterm-screen');
+    // Cross a different cell before revisiting the same link: xterm caches the
+    // last hovered cell even after a pointer leaves the terminal.
+    await screen.hover({ position: { x: position.x > 24 ? position.x - 20 : position.x + 20, y: position.y } });
+    await screen.hover({ position });
+    await waitFor(async () => panel.locator('.terminal-host').getAttribute('title').then(value => value?.includes('Ctrl')), `terminal link hover: ${text}`);
+    await screen.click({ position, modifiers: control ? ['Control'] : [] });
+  };
+  const printLine = async text => {
+    await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady, 'shell prompt before printing links');
+    await page.evaluate(({ id, command }) => window.projectGrid.writeTerminal(id, command), { id: projects[0].id, command: `Write-Output '${text.replaceAll("'", "''")}'\r` });
+    await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady, 'shell prompt after printing links');
+  };
+  await printLine('中文链接 image-preview.png');
+  await clickTerminalText('image-preview.png', false);
+  assert.equal(await page.locator('.file-preview').count(), 0, 'ordinary click does not open a file');
+  await clickTerminalText('image-preview.png');
+  await waitFor(async () => page.locator('img.preview-image').evaluate(image => image.complete && image.naturalWidth > 1000), 'Ctrl click opens a PNG within the app');
+  await page.getByRole('button', { name: '返回终端', exact: true }).click();
+  const wrappedUrl = `http://127.0.0.1:43219/${'path/'.repeat(70)}WRAPPED_LINK_END`;
+  await printLine(wrappedUrl);
+  await clickTerminalText('_LINK_END', false);
+  assert.equal((await application.evaluate(() => globalThis.openedLinks)).length, 0);
+  await clickTerminalText('_LINK_END');
+  await waitFor(async () => (await application.evaluate(() => globalThis.openedLinks)).at(-1) === wrappedUrl, 'Ctrl click opens the full wrapped URL');
+  const reportUrl = pathToFileURL(path.join(previewProject, 'reports', 'preview.html')).href;
+  const osc = `[Console]::WriteLine(([string][char]27) + ']8;;${reportUrl}' + [char]7 + 'REPORT_LINK' + [char]27 + ']8;;' + [char]7)\r`;
+  await page.evaluate(({ id, command }) => window.projectGrid.writeTerminal(id, command), { id: projects[0].id, command: osc });
+  await waitFor(async () => panel.locator('.xterm-rows > div').evaluateAll(rows => rows.some(row => row.textContent.trim() === 'REPORT_LINK')), 'OSC 8 link rendered');
+  const oscSnapshot = await page.evaluate(id => window.projectGrid.attachTerminal(id), projects[0].id);
+  assert.ok(oscSnapshot.ok && oscSnapshot.value.data.includes('\x1b]8;'), 'bundled ConPTY preserves OSC 8 metadata');
+  await clickTerminalText('REPORT_LINK');
+  await page.frameLocator('iframe[title="HTML 页面预览"]').getByRole('heading', { name: 'HTML 页面已渲染' }).waitFor();
+  await page.getByRole('button', { name: '返回终端', exact: true }).click();
+  console.log('PASS: OSC 8 file link opens an HTML preview');
+  assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].sessionId, sessionBefore);
+  console.log('PASS: Ctrl-click local files and wrapped web URLs, with ordinary clicks and terminal sessions preserved');
   const fullWidth = (await panel.boundingBox()).width;
   await page.getByRole('button', { name: '收起目录栏', exact: true }).click();
   await waitFor(async () => (await panel.boundingBox()).width > fullWidth + 100, 'collapsed sidebar frees terminal width');
@@ -250,8 +380,6 @@ try {
 
   const target = bootstraps.find(b => b.projectId === projects[2].id);
   await complete('other-project-turn', target);
-  await page.getByRole('button', { name: '4 列布局', exact: true }).click();
-  await page.getByRole('button', { name: '3 列布局', exact: true }).click();
   await page.getByRole('textbox', { name: '搜索项目' }).fill('不存在');
   await page.waitForSelector('.no-results');
   await page.getByRole('button', { name: '清除搜索' }).click();
@@ -261,7 +389,18 @@ try {
   await page.waitForSelector('dialog[open]');
   await page.screenshot({ path: path.join(output, 'settings.png') });
   await page.getByRole('button', { name: '关闭设置', exact: true }).click();
-  await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 640));
+  for (const width of [1600, 1200, 900, 820]) {
+    await application.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 700), width);
+    await waitFor(async () => page.evaluate(width => window.innerWidth === width, width), 'window resized');
+    const positions = await page.evaluate(() => {
+      const bar = document.querySelector('.titlebar').getBoundingClientRect();
+      return [...document.querySelectorAll('.titlebar-tools > *, .window-actions')].every(node => {
+        const box = node.getBoundingClientRect();
+        return box.top >= bar.top && box.bottom <= bar.bottom && box.left >= 0 && box.right <= innerWidth;
+      }) && getComputedStyle(document.querySelector('.titlebar-tools')).webkitAppRegion === 'no-drag';
+    });
+    assert.equal(positions, true, `top controls fit in ${width}px window`);
+  }
   await page.screenshot({ path: path.join(output, 'compact.png') });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   assert.equal(overflow, false);
@@ -269,7 +408,7 @@ try {
   await page.getByRole('menuitem', { name: '继续开发', exact: true }).click();
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].done === false, 'project menu reopens development');
   await page.evaluate(id => window.projectGrid.markDone(id, true), projects[0].id);
-  console.log('PASS: grid layout, filtering, settings, and compact window');
+  console.log('PASS: compact top titlebar, search, settings and 820–1600px windows');
 
   // A spoofed or stale session key cannot light an unrelated project's tile.
   await new Promise((resolve, reject) => {

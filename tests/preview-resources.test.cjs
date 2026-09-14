@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { PreviewResources } = require('../electron/preview-resources.cjs');
+const { PreviewResources, resourceResponse } = require('../electron/preview-resources.cjs');
 
 async function setup(t) {
   const prefix = path.join(os.tmpdir(), 'project-grid-preview-');
@@ -73,4 +73,53 @@ test('explicit previews in a hidden output folder can load their own assets', as
   const view = resources.open(project, '.test-output/report.html', 'html');
   assert.match((await resources.resolve(view.url)).mimeType, /^text\/html/);
   assert.equal((await resources.resolve(new URL('preview.png', view.url).href)).mimeType, 'image/png');
+});
+
+test('video seeking serves byte ranges and expires access to the selected file', async t => {
+  const { project, resources } = await setup(t);
+  await fs.writeFile(path.join(project.path, 'clip.mp4'), Buffer.from('0123456789'));
+  const view = resources.open(project, 'clip.mp4', 'video');
+  const resource = await resources.resolve(view.url);
+  assert.equal(resource.mimeType, 'video/mp4');
+  for (const [range, content, contentRange] of [['bytes=2-5', '2345', 'bytes 2-5/10'], ['bytes=7-', '789', 'bytes 7-9/10'], ['bytes=-3', '789', 'bytes 7-9/10']]) {
+    const response = resourceResponse(resource, new Request(view.url, { headers: { Range: range } }));
+    assert.equal(response.status, 206);
+    assert.equal(response.headers.get('Content-Range'), contentRange);
+    assert.equal(response.headers.get('Content-Length'), String(content.length));
+    assert.equal(await response.text(), content);
+  }
+  for (const range of ['bytes=100-', 'bytes=5-2', 'bytes=-0']) {
+    const response = resourceResponse(resource, new Request(view.url, { headers: { Range: range } }));
+    assert.equal(response.status, 416);
+    assert.equal(response.headers.get('Content-Range'), 'bytes */10');
+  }
+  const head = resourceResponse(resource, new Request(view.url, { method: 'HEAD' }));
+  assert.equal(head.headers.get('Content-Length'), '10');
+  assert.equal(await head.text(), '');
+  const full = resourceResponse(resource, new Request(view.url));
+  assert.equal(await full.text(), '0123456789');
+  await assert.rejects(resources.resolve(new URL('assets/style.css', view.url).href));
+  resources.close(view.previewId);
+  await assert.rejects(resources.resolve(view.url));
+});
+
+test('content-identified images retain the correct MIME type without a filename extension', async t => {
+  const { project, resources } = await setup(t);
+  await fs.writeFile(path.join(project.path, 'download'), 'image');
+  const view = resources.open(project, 'download', 'image', 'image/png');
+  assert.equal((await resources.resolve(view.url)).mimeType, 'image/png');
+});
+
+test('resources above 128 MiB stream the requested tail without loading the whole file', async t => {
+  const { project, resources } = await setup(t);
+  const size = 129 * 1024 * 1024;
+  const handle = await fs.open(path.join(project.path, 'large.webm'), 'w');
+  await handle.write(Buffer.from('TAIL'), 0, 4, size - 4);
+  await handle.close();
+  const view = resources.open(project, 'large.webm', 'video');
+  const resource = await resources.resolve(view.url);
+  assert.equal(resource.size, size);
+  const response = resourceResponse(resource, new Request(view.url, { headers: { Range: 'bytes=-4' } }));
+  assert.equal(response.status, 206);
+  assert.equal(await response.text(), 'TAIL');
 });

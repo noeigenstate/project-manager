@@ -2,13 +2,15 @@ import { useEffect, useState, type KeyboardEvent } from 'react';
 import {
   ArrowLeft, ArrowSquareOut, ArrowsInLineVertical, ArrowClockwise, BracketsCurly,
   CaretDown, CaretRight, CheckCircle, File, FileCode, FileText, Folder, FolderOpen,
-  GearSix, LinkSimple, SidebarSimple, SpinnerGap,
+  GearSix, LinkSimple, SidebarSimple, SpinnerGap, Image as ImageIcon, FilmStrip,
 } from '@phosphor-icons/react';
 import type { DirectoryListing, FileEntry, Project } from './types';
 
 export function FileIcon({ entry, open = false }: { entry: FileEntry; open?: boolean }) {
   if (entry.kind === 'directory') return open ? <FolderOpen className="file-icon folder-icon" size={16} weight="duotone" /> : <Folder className="file-icon folder-icon" size={16} weight="duotone" />;
   if (entry.kind === 'link') return <LinkSimple className="file-icon" size={15} />;
+  if (/\.(png|apng|jpe?g|jpe|jfif|gif|webp|bmp|avif|svg|ico)$/i.test(entry.name)) return <ImageIcon className="file-icon code-icon" size={16} />;
+  if (/\.(mp4|m4v|webm|ogv|ogg|mov|mkv|avi)$/i.test(entry.name)) return <FilmStrip className="file-icon config-icon" size={16} />;
   if (/\.(json|ya?ml|toml)$/i.test(entry.name)) return <BracketsCurly className="file-icon config-icon" size={15} />;
   if (/\.(tsx?|jsx?|[cm]js|py|rs|go|html?|css|scss|vue|svelte|ps1)$/i.test(entry.name)) return <FileCode className="file-icon code-icon" size={16} />;
   if (/\.(md|txt|log)$/i.test(entry.name)) return <FileText className="file-icon text-file-icon" size={16} />;

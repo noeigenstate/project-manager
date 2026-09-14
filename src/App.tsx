@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
-  SquaresFour, FolderSimplePlus, Bell, BellSlash, MagnifyingGlass, ArrowsOutSimple,
+  SquaresFour, FolderSimplePlus, Bell, MagnifyingGlass, ArrowsOutSimple,
   Play, Terminal as TerminalIcon, Check, DotsThree, GitBranch, X, Minus, Square,
   GearSix, CheckCircle, FolderOpen, Power, ArrowCounterClockwise,
   ArrowSquareOut, Monitor, Info, Circle, SpeakerHigh,
@@ -11,7 +11,6 @@ import { ProjectExplorer } from './ProjectExplorer';
 import { FilePreview } from './FilePreview';
 
 const api = window.projectGrid;
-type Filter = 'all' | 'unread' | 'done';
 
 function IconButton({ label, children, onClick, className = '', disabled = false }: {
   label: string; children: ReactNode; onClick: () => void; className?: string; disabled?: boolean;
@@ -40,10 +39,11 @@ function statusText(project: Project) {
   return '尚未启动';
 }
 
-function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus, onDone, onAction, onError }: {
+function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus, onDone, onAction, onError, onOpenLink }: {
   project: Project; index: number; hidden: boolean; focused: boolean; fontSize: number; now: number;
   onFocus: (id: string) => void; onDone: (project: Project) => void;
   onAction: <T>(promise: Promise<Result<T>>) => Promise<T | undefined>; onError: (message: string) => void;
+  onOpenLink: (id: string, target: string) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
@@ -61,7 +61,7 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
     data-project-id={project.id} data-status={project.done ? 'done' : project.unread ? 'unread' : project.status}
     style={{ display: hidden ? 'none' : undefined }}
     onClick={event => {
-      if (!focused && project.unread && !(event.target as Element).closest('button, input, [role="menu"]')) onFocus(project.id);
+      if (!focused && project.unread && !event.ctrlKey && !(event.target as Element).closest('button, input, [role="menu"]')) onFocus(project.id);
     }}
   >
     <header className="panel-header">
@@ -88,7 +88,7 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
       </div>
     </header>
     <div className="panel-terminal-area">
-      {hasTerminal && <TerminalPane id={project.id} sessionId={project.sessionId} fontSize={fontSize} focused={focused} onError={onError} />}
+      {hasTerminal && <TerminalPane id={project.id} sessionId={project.sessionId} fontSize={fontSize} focused={focused} onError={onError} onOpenLink={onOpenLink} />}
       {!hasTerminal && <div className="terminal-empty">
         <TerminalIcon size={28} weight="light" />
         <p>{project.done ? '这个项目已标记为开发完成' : '项目已就位'}</p>
@@ -138,7 +138,6 @@ function SettingsDialog({ settings, close, update, quit }: {
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -165,6 +164,13 @@ export function App() {
     perform(api.acknowledge(id));
   }, [perform]);
   const returnToGrid = useCallback(() => { setFocusedId(null); setPreviewFile(null); api.focusMode(false); }, []);
+  const openTerminalLink = useCallback(async (id: string, target: string) => {
+    const result = await perform(api.openLink(id, target));
+    if (result?.kind === 'file') {
+      focusProject(id);
+      setPreviewFile({ projectId: id, path: result.path });
+    }
+  }, [perform, focusProject]);
 
   useEffect(() => {
     if (!api) return;
@@ -193,18 +199,14 @@ export function App() {
   const { projects, settings } = workspace;
   const unread = projects.filter(p => p.unread > 0 && !p.done).length;
   const done = projects.filter(p => p.done).length;
-  const active = projects.filter(p => p.codexActive && !p.done).length;
-  const visible = projects.filter(p =>
-    (filter === 'all' || (filter === 'unread' ? p.unread > 0 && !p.done : p.done)) &&
-    (!query || `${p.name} ${p.path}`.toLowerCase().includes(query.toLowerCase()))
-  );
+  const visible = projects.filter(p => !query || `${p.name} ${p.path}`.toLowerCase().includes(query.toLowerCase()));
   const visibleIds = new Set(visible.map(p => p.id));
-  const columns = settings.columns || Math.min(4, Math.max(1, Math.ceil(Math.sqrt(Math.max(visible.length, 1)))));
+  const columns = Math.min(4, Math.max(1, Math.ceil(Math.sqrt(Math.max(visible.length, 1)))));
   const rows = Math.max(1, Math.ceil(visible.length / columns));
   const focus = projects.find(p => p.id === focusedId);
   const addProjects = async () => {
     setAdding(true);
-    try { const ids = await perform(api.addProjects()); if (ids?.length) { setFilter('all'); setQuery(''); } }
+    try { const ids = await perform(api.addProjects()); if (ids?.length) setQuery(''); }
     finally { setAdding(false); }
   };
   const markDone = async (project: Project) => {
@@ -216,7 +218,12 @@ export function App() {
   return <div className={`app-shell ${focusedId ? 'focus-mode' : ''}`}>
     <div className="titlebar">
       <div className="titlebar-brand"><span className="brand-mark"><i /><i /><i /><i /></span><span>Project Grid</span><span className="titlebar-divider" /> <span className="titlebar-subtitle">项目矩阵</span></div>
-      <div className="titlebar-center">{focusedId ? '专注模式' : '本地工作区'}</div>
+      <div className="titlebar-space" />
+      {!focusedId && <div className="titlebar-tools">
+        <div className="search-input"><MagnifyingGlass size={16} /><input ref={queryInput} placeholder="搜索项目或路径…" aria-label="搜索项目" value={query} onChange={e => setQuery(e.target.value)} />{query ? <IconButton label="清除搜索" onClick={() => setQuery('')}><X size={13} /></IconButton> : <kbd>Ctrl K</kbd>}</div>
+        <button className="button primary" onClick={addProjects} disabled={adding}><FolderSimplePlus size={17} />{adding ? '选择目录中…' : '添加项目'}</button>
+        <IconButton label="工作台设置" onClick={() => setSettingsOpen(true)}><GearSix size={19} /></IconButton>
+      </div>}
       <div className="window-actions"><IconButton label="最小化" onClick={() => api.minimize()}><Minus size={16} /></IconButton><IconButton label="最大化或还原" onClick={() => api.maximize()}><Square size={12} /></IconButton><IconButton label="关闭窗口" className="window-close" onClick={() => api.close()}><X size={17} /></IconButton></div>
     </div>
     <div className="workspace-layout">
@@ -227,30 +234,8 @@ export function App() {
         onSelectFile={path => setPreviewFile({ projectId: focus.id, path })} onReturn={returnToGrid} onDone={() => markDone(focus)}
         onSettings={() => setSettingsOpen(true)} onOpenCode={() => perform(api.openInCode(focus.id))} />}
       <main className="main-workspace">
-        {!focusedId && <>
-          <div className="workspace-header">
-            <div className="workspace-summary"><div className="workspace-heading"><h1>{filter === 'all' ? '全部项目' : filter === 'unread' ? '等待查看' : '开发完成'}</h1><span className="heading-count">{filter === 'all' ? projects.length : filter === 'unread' ? unread : done}</span></div><p>{projects.length ? `${active} 个 Codex 会话中${unread ? `，${unread} 个项目等待你查看` : '，所有项目尽在眼前'}` : '将项目放在一起，让每一次完成都看得见。'}</p></div>
-            <div className="grid-toolbar">
-            <nav className="project-filters" aria-label="项目分类">
-              <button className={filter === 'all' ? 'selected' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}><SquaresFour size={15} /><span>全部项目</span><b>{projects.length}</b></button>
-              <button className={`${filter === 'unread' ? 'selected' : ''} ${unread ? 'nav-attention' : ''}`} aria-pressed={filter === 'unread'} onClick={() => setFilter('unread')}><span className="filter-dot red" /><span>等待查看</span><b>{unread}</b></button>
-              <button className={filter === 'done' ? 'selected' : ''} aria-pressed={filter === 'done'} onClick={() => setFilter('done')}><span className="filter-dot green" /><span>开发完成</span><b>{done}</b></button>
-            </nav>
-            <div className="toolbar-right">
-              <div className="layout-selector" aria-label="网格列数"><span>布局</span>{[0, 2, 3, 4].map(n => <button title={n ? `${n} 列` : '自动布局'} key={n} aria-label={n ? `${n} 列布局` : '自动布局'} className={settings.columns === n ? 'chosen' : ''} onClick={() => setPreference({ columns: n })}>{n === 0 ? '自动' : <><span className={`layout-glyph cols-${n}`}>{Array.from({ length: n }, (_, i) => <i key={i} />)}</span><span>{n}</span></>}</button>)}</div>
-              <span className="toolbar-divider" />
-              <IconButton label={settings.notifications ? '关闭桌面通知' : '开启桌面通知'} className={settings.notifications ? 'notifications-on' : ''} onClick={() => setPreference({ notifications: !settings.notifications })}>{settings.notifications ? <Bell size={17} /> : <BellSlash size={17} />}</IconButton>
-            </div>
-            </div>
-            <div className="workspace-header-actions">
-              <div className="search-input"><MagnifyingGlass size={16} /><input ref={queryInput} placeholder="搜索项目或路径…" aria-label="搜索项目" value={query} onChange={e => setQuery(e.target.value)} />{query ? <IconButton label="清除搜索" onClick={() => setQuery('')}><X size={13} /></IconButton> : <kbd>Ctrl K</kbd>}</div>
-              <button className="button primary" onClick={addProjects} disabled={adding}><FolderSimplePlus size={17} />{adding ? '选择目录中…' : '添加项目'}</button>
-              <IconButton label="工作台设置" onClick={() => setSettingsOpen(true)}><GearSix size={19} /></IconButton>
-            </div>
-          </div>
-        </>}
         {workspace.warning && <div className="workspace-warning"><Info size={15} />{workspace.warning}</div>}
-        {focusedId && previewFile?.projectId === focusedId && <FilePreview projectId={focusedId} filePath={previewFile.path} onClose={() => setPreviewFile(null)} onError={reportError} />}
+        {focusedId && previewFile?.projectId === focusedId && <FilePreview key={`${focusedId}:${previewFile.path}`} projectId={focusedId} filePath={previewFile.path} onClose={() => setPreviewFile(null)} onError={reportError} />}
         <div className={`grid-area ${!projects.length ? 'empty-area' : ''}`} style={{ display: focusedId && previewFile?.projectId === focusedId ? 'none' : undefined }}>
           {!projects.length ? <div className="empty-workspace">
             <div className="empty-illustration" aria-hidden="true"><div className="illustration-tile"><span /><i /><i /><i /></div><div className="illustration-tile red-tile"><span /><i /><i /><b /></div><div className="illustration-tile green-tile"><Check size={22} /></div><div className="illustration-tile"><span /><i /><i /></div></div>
@@ -258,11 +243,11 @@ export function App() {
             <button className="button primary" onClick={addProjects} disabled={adding}><FolderSimplePlus size={18} />添加第一个项目</button>
             <div className="empty-hints"><span><Circle weight="fill" size={7} />红色闪烁 · 等待查看</span><span><CheckCircle weight="fill" size={12} />绿色常亮 · 开发完成</span></div>
           </div> : <>
-            {!focusedId && !visible.length && <div className="no-results"><MagnifyingGlass size={30} weight="light" /><h2>{query ? '没有找到匹配项目' : filter === 'unread' ? '暂时没有待查看的项目' : '还没有已完成的项目'}</h2><p>{query ? '试试其他项目名称或目录。' : filter === 'unread' ? 'Codex 本轮结束后，项目会在这里亮起。' : '在项目全屏视图中点击“标记开发完成”。'}</p><button className="button secondary small" onClick={() => { setFilter('all'); setQuery(''); }}>查看全部项目</button></div>}
+            {!focusedId && !visible.length && <div className="no-results"><MagnifyingGlass size={30} weight="light" /><h2>没有找到匹配项目</h2><p>试试其他项目名称或目录。</p><button className="button secondary small" onClick={() => setQuery('')}>重置搜索</button></div>}
             <div className="project-grid" style={{ '--columns': columns, '--rows': rows, display: !focusedId && !visible.length ? 'none' : undefined } as CSSProperties}>
               {projects.map((project, index) => <ProjectPanel key={project.id} project={project} index={index}
                 hidden={focusedId ? focusedId !== project.id : !visibleIds.has(project.id)} focused={focusedId === project.id && !previewFile}
-                fontSize={settings.fontSize} now={now} onFocus={focusProject} onDone={markDone} onAction={perform} onError={reportError} />)}
+                fontSize={settings.fontSize} now={now} onFocus={focusProject} onDone={markDone} onAction={perform} onError={reportError} onOpenLink={openTerminalLink} />)}
             </div>
           </>}
         </div>

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { listDirectory, readProjectFile } = require('../electron/project-files.cjs');
+const { listDirectory, readProjectFile, TEXT_PAGE_BYTES } = require('../electron/project-files.cjs');
 
 async function fixture(t) {
   const prefix = path.join(os.tmpdir(), 'project-grid-files-');
@@ -58,12 +58,18 @@ test('text previews preserve Unicode, source markup, empty files, and UTF-16 BOM
   assert.equal((await readProjectFile(project, 'utf16.txt')).content, '中文\r\n文本');
 });
 
-test('binary and oversized files return a preview explanation without reading unbounded data', async t => {
+test('binary files stay distinct while large text opens with bounded pages', async t => {
   const { project } = await fixture(t);
   await fs.writeFile(path.join(project.path, 'binary.bin'), Buffer.from([0, 10, 254, 0]));
   await fs.writeFile(path.join(project.path, 'large.txt'), Buffer.alloc(1024 * 1024 + 1, 65));
   assert.equal((await readProjectFile(project, 'binary.bin')).kind, 'unsupported');
-  assert.equal((await readProjectFile(project, 'large.txt')).kind, 'unsupported');
+  const large = await readProjectFile(project, 'large.txt');
+  assert.equal(large.kind, 'text');
+  assert.equal(large.content.length, TEXT_PAGE_BYTES);
+  assert.equal(large.page.count, 5);
+  const last = await readProjectFile(project, 'large.txt', large.page.count - 1);
+  assert.equal(last.content, 'A');
+  assert.equal(last.page.byteEnd, 1024 * 1024 + 1);
 });
 
 test('project file operations reject traversal, absolute paths, alternate streams and escaping links', async t => {
@@ -100,7 +106,7 @@ test('PNG images above the text limit still get image previews', async t => {
   assert.equal(Object.hasOwn(result, 'content'), false);
 });
 
-test('HTML defaults to a page preview and keeps source when small', async t => {
+test('HTML defaults to a page preview and offers source pages at any size', async t => {
   const { project } = await fixture(t);
   const html = '<!doctype html><h1>预览页面</h1><script>window.ready=true</script>';
   await fs.writeFile(path.join(project.path, 'index.html'), html);
@@ -110,5 +116,66 @@ test('HTML defaults to a page preview and keeps source when small', async t => {
   await fs.writeFile(path.join(project.path, 'large.html'), '<!doctype html>' + ' '.repeat(2 * 1024 * 1024));
   const large = await readProjectFile(project, 'large.html');
   assert.equal(large.kind, 'html');
-  assert.equal(large.content, null);
+  assert.equal(large.content.length, TEXT_PAGE_BYTES);
+  assert.equal(large.page.count, 9);
+});
+
+test('UTF-8 and UTF-16 pages reconstruct all Unicode without gaps or split characters', async t => {
+  const { project } = await fixture(t);
+  const content = 'A'.repeat(TEXT_PAGE_BYTES - 1) + '中🙂\uFEFF文本\r\n'.repeat(45000);
+  const variants = [
+    ['utf8.txt', Buffer.from(content)],
+    ['utf8-bom.txt', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(content)])],
+    ['utf16-le.txt', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, 'utf16le')])],
+    ['utf16-be.txt', Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(content, 'utf16le').swap16()])],
+  ];
+  for (const [name, data] of variants) {
+    await fs.writeFile(path.join(project.path, name), data);
+    const first = await readProjectFile(project, name);
+    let text = '';
+    let lastEnd = first.page.byteStart;
+    for (let index = 0; index < first.page.count; index++) {
+      const result = await readProjectFile(project, name, index);
+      assert.equal(result.kind, 'text', name);
+      assert.equal(result.page.byteStart, lastEnd, name);
+      assert.ok(result.page.byteEnd - result.page.byteStart <= TEXT_PAGE_BYTES + 4);
+      lastEnd = result.page.byteEnd;
+      text += result.content;
+    }
+    assert.equal(text, content, name);
+    assert.equal(lastEnd, data.length);
+  }
+});
+
+test('page requests stay bounded after a file shrinks and reject invalid indices', async t => {
+  const { project } = await fixture(t);
+  await fs.writeFile(path.join(project.path, 'live.log'), 'latest');
+  const result = await readProjectFile(project, 'live.log', 50000000);
+  assert.equal(result.content, 'latest');
+  assert.equal(result.page.index, 0);
+  for (const index of [-1, Infinity, NaN, 1.5, '2']) await assert.rejects(readProjectFile(project, 'live.log', index));
+});
+
+test('images are identified by their bytes as well as their extension', async t => {
+  const { project } = await fixture(t);
+  const png = await fs.readFile(path.join(__dirname, '..', 'assets', 'icon.png'));
+  await fs.writeFile(path.join(project.path, 'download-without-extension'), png);
+  assert.equal((await readProjectFile(project, 'download-without-extension')).mimeType, 'image/png');
+  await fs.writeFile(path.join(project.path, 'photo.jfif'), Buffer.from([0xff, 0xd8, 0xff]));
+  assert.equal((await readProjectFile(project, 'photo.jfif')).kind, 'image');
+  await fs.writeFile(path.join(project.path, 'icon.ico'), Buffer.from([0, 0, 1, 0, 1, 0]));
+  assert.equal((await readProjectFile(project, 'icon.ico')).mimeType, 'image/x-icon');
+});
+
+test('media metadata does not read the whole file or impose a 32 MiB size gate', async t => {
+  const { project } = await fixture(t);
+  for (const [name, kind] of [['large.png', 'image'], ['large.mp4', 'video']]) {
+    const handle = await fs.open(path.join(project.path, name), 'w');
+    await handle.truncate(33 * 1024 * 1024);
+    await handle.close();
+    const result = await readProjectFile(project, name);
+    assert.equal(result.kind, kind);
+    assert.equal(result.size, 33 * 1024 * 1024);
+    assert.equal(Object.hasOwn(result, 'content'), false);
+  }
 });

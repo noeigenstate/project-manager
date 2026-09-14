@@ -11,10 +11,11 @@ export type TerminalSnapshot = { sessionId: string | null; seq: number; data: st
 export type TerminalPacket = TerminalSnapshot & { id: string };
 export type FileEntry = { name: string; path: string; kind: 'directory' | 'file' | 'link' };
 export type DirectoryListing = { path: string; entries: FileEntry[]; total: number; nextOffset: number | null };
+export type TextPage = { index: number; count: number; byteStart: number; byteEnd: number; encoding: string };
 export type FilePreview = { path: string; name: string; size: number; modifiedAt: number } & (
-  { kind: 'text'; content: string } | { kind: 'unsupported'; reason: string }
-  | { kind: 'image'; mimeType: string; url: string; previewId: string }
-  | { kind: 'html'; content: string | null; url: string; previewId: string }
+  { kind: 'text'; content: string; page: TextPage } | { kind: 'unsupported'; reason: string }
+  | { kind: 'image' | 'video'; mimeType: string; url: string; previewId: string }
+  | { kind: 'html'; content: string; page: TextPage; url: string; previewId: string }
 );
 export type Bridge = {
   getState(): Promise<Result<Workspace>>;
@@ -26,8 +27,10 @@ export type Bridge = {
   settings(patch: Partial<Settings>): Promise<Result<void>>;
   openInCode(id: string, relativePath?: string): Promise<Result<void>>;
   listDirectory(id: string, relativePath?: string, offset?: number): Promise<Result<DirectoryListing>>;
-  readFile(id: string, relativePath: string): Promise<Result<FilePreview>>;
+  readFile(id: string, relativePath: string, pageIndex?: number): Promise<Result<FilePreview>>;
   closePreview(id: string): Promise<Result<void>>;
+  openLink(id: string, target: string): Promise<Result<{ kind: 'external' } | { kind: 'file'; path: string }>>;
+  openVideo(id: string, relativePath: string): Promise<Result<void>>;
   revealProject(id: string): Promise<Result<void>>;
   startTerminal(id: string): Promise<Result<void>>;
   restartTerminal(id: string): Promise<Result<boolean>>;
