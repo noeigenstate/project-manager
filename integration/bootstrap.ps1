@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Continue'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $OutputEncoding = [Console]::OutputEncoding
 $global:ProjectGridSession = Get-Content -LiteralPath $env:PROJECT_GRID_BOOTSTRAP -Raw -Encoding UTF8 | ConvertFrom-Json
+$global:ProjectGridEventSequence = 0
 Set-Location -LiteralPath $global:ProjectGridSession.projectPath
 $global:ProjectGridCodexCommand = Get-Command codex -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
 $global:ProjectGridCodexExecutable = $global:ProjectGridCodexCommand
@@ -41,11 +42,13 @@ function global:ConvertTo-ProjectGridArgument {
 
 function global:Send-ProjectGridEvent {
     param([string]$Type, [int]$ExitCode = 0)
+    $global:ProjectGridEventSequence++
     try {
         $eventData = @{
             projectId = $global:ProjectGridSession.projectId
             sessionKey = $global:ProjectGridSession.sessionKey
             type = $Type
+            sequence = $global:ProjectGridEventSequence
             exitCode = $ExitCode
             codexAvailable = [bool]$global:ProjectGridCodexCommand
         } | ConvertTo-Json -Compress

@@ -45,6 +45,13 @@ try {
   application = await electron.launch({ executablePath: packaged ? path.join(root, 'release/win-unpacked/Project Grid.exe') : require('electron'), args: packaged ? [] : [root], cwd: root, env, timeout: 30000 });
   application.process().stderr.on('data', data => { const text = data.toString(); if (/Uncaught|Error:|failed to load/i.test(text)) errors.push(text); });
   const page = await application.firstWindow();
+  await application.evaluate(({ ipcMain }) => {
+    globalThis.terminalTestInputs = [];
+    ipcMain.on('terminal:write', (_event, id, data) => {
+      globalThis.terminalTestInputs.push({ id, data });
+      if (globalThis.terminalTestInputs.length > 40) globalThis.terminalTestInputs.shift();
+    });
+  });
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForSelector('.project-panel', { timeout: 20000 });
   assert.equal(await page.locator('.project-panel').count(), 6);
@@ -72,6 +79,10 @@ try {
     return result.ok && result.value.projects.every(p => p.status === 'shell' && p.shellReady);
   }, 'six PowerShell terminals ready');
   console.log('PASS: real button clicks start six ConPTY terminals in grid and fullscreen views');
+
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, '\x1b[1;1R'), projects[0].id);
+  const readyAfterReport = (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady;
+  assert.equal(readyAfterReport, true, 'automatic terminal replies must not disable the Codex start button');
 
   await page.evaluate(id => window.projectGrid.writeTerminal(id, "[IO.File]::WriteAllText((Join-Path (Get-Location).Path 'cwd-proof.txt'), (Get-Location).Path)\r"), projects[3].id);
   await waitFor(async () => { try { return await fs.readFile(path.join(projects[3].path, 'cwd-proof.txt'), 'utf8') === projects[3].path; } catch { return false; } }, 'literal working directory with brackets, quotes, ampersand and dollar');
@@ -208,7 +219,12 @@ try {
   console.error(error);
   if (errors.length) console.error(errors.join('\n'));
   if (application) {
-    try { const page = await application.firstWindow(); await page.screenshot({ path: path.join(output, 'failure.png') }); } catch {}
+    try {
+      const page = await application.firstWindow();
+      console.error('Desktop state:', JSON.stringify(await page.evaluate(() => window.projectGrid.getState())));
+      console.error('Test terminal input:', JSON.stringify(await application.evaluate(() => globalThis.terminalTestInputs)));
+      await page.screenshot({ path: path.join(output, 'failure.png') });
+    } catch {}
   }
   process.exitCode = 1;
 } finally {

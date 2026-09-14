@@ -8,6 +8,7 @@ const pty = require('node-pty');
 const { WorkspaceStore } = require('./state.cjs');
 const { createEventServer } = require('./events.cjs');
 const { listDirectory, readProjectFile, resolveProjectPath } = require('./project-files.cjs');
+const { isTerminalResponse, acceptShellEvent } = require('./terminal-input.cjs');
 
 const root = path.join(__dirname, '..');
 const integrationDir = app.isPackaged ? path.join(process.resourcesPath, 'integration') : path.join(root, 'integration');
@@ -102,6 +103,7 @@ function onEvent(event) {
   if (!s || event.sessionKey !== s.sessionKey) return;
   const project = store.projects.find(p => p.id === event.projectId);
   if (!project) return;
+  if (event.type !== 'turn-complete' && !acceptShellEvent(s, event)) return;
   if (event.type === 'shell-ready' || event.type === 'shell-prompt') {
     s.ready = event.type === 'shell-prompt';
     s.inputDirty = false;
@@ -306,7 +308,7 @@ function registerIpc() {
     if (typeof data !== 'string' || data.length > 1024 * 1024) return;
     const s = sessions.get(id);
     if (s && s.status !== 'exited') {
-      if (!s.codexActive) { s.inputDirty = true; if (data.includes('\r') || data.includes('\n')) s.ready = false; }
+      if (!s.codexActive && !isTerminalResponse(data)) { s.inputDirty = true; if (data.includes('\r') || data.includes('\n')) s.ready = false; }
       s.terminal.write(data);
       scheduleState();
     }
