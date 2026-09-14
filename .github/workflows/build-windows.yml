@@ -151,6 +151,7 @@ jobs:
 
           - Multiple project terminals with completion alerts.
           - Fullscreen project view, collapsible file explorer, and frosted glass interface.
+          - Inline PNG image viewing and isolated HTML page previews with local CSS and JavaScript resources.
           - Verified with unit tests and packaged desktop tests, including real terminal button clicks.
 
           Commit: $GITHUB_SHA

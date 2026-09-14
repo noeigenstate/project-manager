@@ -4,6 +4,8 @@ const { TextDecoder } = require('node:util');
 
 const PAGE_SIZE = 200;
 const MAX_PREVIEW_BYTES = 1024 * 1024;
+const MAX_MEDIA_BYTES = 32 * 1024 * 1024;
+const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp', '.avif': 'image/avif', '.svg': 'image/svg+xml' };
 const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
 
 function isWithin(root, candidate) {
@@ -42,10 +44,25 @@ async function readProjectFile(project, relativePath) {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error('只能预览普通文件。');
     const base = { path: relativePath, name: path.basename(relativePath), size: stat.size, modifiedAt: stat.mtimeMs };
+    const extension = path.extname(relativePath).toLowerCase();
+    const isHtml = extension === '.html' || extension === '.htm';
+    if (IMAGE_TYPES[extension]) {
+      if (stat.size > MAX_MEDIA_BYTES) return { ...base, kind: 'unsupported', reason: '图片大于 32 MiB，请在外部应用中打开。' };
+      return { ...base, kind: 'image', mimeType: IMAGE_TYPES[extension] };
+    }
+    if (isHtml && stat.size > MAX_PREVIEW_BYTES) {
+      if (stat.size > MAX_MEDIA_BYTES) return { ...base, kind: 'unsupported', reason: 'HTML 文件大于 32 MiB，请在浏览器中打开。' };
+      return { ...base, kind: 'html', content: null };
+    }
     if (stat.size > MAX_PREVIEW_BYTES) return { ...base, kind: 'unsupported', reason: '文件大于 1 MiB，请在 VS Code 中打开。' };
     // Bound reads even when Codex is growing the file concurrently.
     const buffer = Buffer.alloc(MAX_PREVIEW_BYTES + 1);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const chunk = await handle.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+      if (!chunk.bytesRead) break;
+      bytesRead += chunk.bytesRead;
+    }
     if (bytesRead > MAX_PREVIEW_BYTES) return { ...base, kind: 'unsupported', reason: '文件大于 1 MiB，请在 VS Code 中打开。' };
     const data = buffer.subarray(0, bytesRead);
     let encoding = 'utf-8';
@@ -54,7 +71,7 @@ async function readProjectFile(project, relativePath) {
     else if (data.includes(0)) return { ...base, kind: 'unsupported', reason: '二进制文件不支持文本预览。' };
     try {
       const content = new TextDecoder(encoding, { fatal: true }).decode(data);
-      return { ...base, kind: 'text', content };
+      return { ...base, kind: isHtml ? 'html' : 'text', content };
     } catch {
       return { ...base, kind: 'unsupported', reason: '此文件的编码不支持预览，请在 VS Code 中打开。' };
     }

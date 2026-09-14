@@ -10,6 +10,7 @@ const { createEventServer } = require('./events.cjs');
 const { listDirectory, readProjectFile, resolveProjectPath } = require('./project-files.cjs');
 const { isTerminalResponse, acceptShellEvent } = require('./terminal-input.cjs');
 const { createTerminalEnvironment } = require('./terminal-env.cjs');
+const { PreviewResources } = require('./preview-resources.cjs');
 
 const root = path.join(__dirname, '..');
 const integrationDir = app.isPackaged ? path.join(process.resourcesPath, 'integration') : path.join(root, 'integration');
@@ -17,12 +18,16 @@ const devUrl = !app.isPackaged ? process.env.PROJECT_GRID_DEV_URL : null;
 if (process.env.PROJECT_GRID_DATA_DIR) app.setPath('userData', path.resolve(process.env.PROJECT_GRID_DATA_DIR));
 app.setName('Project Grid');
 app.setAppUserModelId('local.projectgrid.desktop');
-protocol.registerSchemesAsPrivileged([{ scheme: 'project-grid', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'project-grid', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  { scheme: 'project-preview', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+]);
 
 let window, tray, store, eventServer, quitting = false;
 const sessions = new Map();
 const branches = new Map();
 const startupErrors = new Map();
+const previewResources = new PreviewResources();
 let stateTimer;
 let runtimeDir;
 const powershellPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
@@ -257,7 +262,7 @@ function registerIpc() {
   });
   handle('workspace:remove', async id => {
     if (!await confirmTerminalClose(id, '移除')) return false;
-    disposeTerminal(id); store.remove(id); branches.delete(id); startupErrors.delete(id); broadcast(); return true;
+    disposeTerminal(id); previewResources.closeProject(id); store.remove(id); branches.delete(id); startupErrors.delete(id); broadcast(); return true;
   });
   handle('workspace:acknowledge', id => { findProject(id); store.acknowledge(id); broadcast(); });
   handle('workspace:done', (id, done) => { findProject(id); store.markDone(id, done); broadcast(); });
@@ -267,7 +272,13 @@ function registerIpc() {
     store.updateSettings(patch); broadcast();
   });
   handle('project:directory', (id, relativePath, offset) => listDirectory(findProject(id), relativePath, offset));
-  handle('project:file', (id, relativePath) => readProjectFile(findProject(id), relativePath));
+  handle('project:file', async (id, relativePath) => {
+    const project = findProject(id);
+    const preview = await readProjectFile(project, relativePath);
+    if (preview.kind === 'image' || preview.kind === 'html') return { ...preview, ...previewResources.open(project, relativePath, preview.kind) };
+    return preview;
+  });
+  handle('project:preview-close', id => previewResources.close(id));
   handle('project:reveal', async id => { const error = await shell.openPath(findProject(id).path); if (error) throw new Error(error); });
   handle('project:code', async (id, relativePath) => {
     const project = findProject(id);
@@ -340,15 +351,27 @@ else {
       if (!resolved.startsWith(path.resolve(root, 'dist') + path.sep)) return new Response('Forbidden', { status: 403 });
       return electronNet.fetch(pathToFileURL(resolved).toString());
     });
+    protocol.handle('project-preview', async request => {
+      if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405 });
+      try {
+        const resource = await previewResources.resolve(request.url);
+        if (request.method === 'HEAD') return new Response(null, { headers: { ...resource.headers, 'Content-Length': String(resource.size) } });
+        const response = await electronNet.fetch(pathToFileURL(resource.path).toString());
+        return new Response(response.body, { status: response.status, headers: resource.headers });
+      } catch { return new Response('文件不存在、超出项目范围，或预览已关闭。', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } }); }
+    });
     registerIpc();
     window = new BrowserWindow({
       width: 1500, height: 940, minWidth: 820, minHeight: 560,
       title: 'Project Grid · 项目矩阵', backgroundColor: '#101216',
       frame: false, show: false, icon: path.join(root, 'assets/icon.png'),
-      webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, spellcheck: false },
+      webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, nodeIntegrationInSubFrames: false, contextIsolation: true, sandbox: true, spellcheck: false },
     });
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', event => event.preventDefault());
+    window.webContents.on('will-frame-navigate', event => {
+      if (!event.isMainFrame && event.url !== 'about:blank' && !previewResources.hasUrl(event.url)) event.preventDefault();
+    });
     window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
     window.webContents.session.setPermissionCheckHandler(() => false);
     window.once('ready-to-show', () => window.show());

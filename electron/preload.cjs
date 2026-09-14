@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('projectGrid', {
   openInCode: (id, relativePath) => ipcRenderer.invoke('project:code', id, relativePath),
   listDirectory: (id, relativePath = '', offset = 0) => ipcRenderer.invoke('project:directory', id, relativePath, offset),
   readFile: (id, relativePath) => ipcRenderer.invoke('project:file', id, relativePath),
+  closePreview: id => ipcRenderer.invoke('project:preview-close', id),
   revealProject: id => ipcRenderer.invoke('project:reveal', id),
   startTerminal: id => ipcRenderer.invoke('terminal:start', id),
   restartTerminal: id => ipcRenderer.invoke('terminal:restart', id),

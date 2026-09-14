@@ -29,6 +29,14 @@ for (const name of names) {
   await fs.writeFile(path.join(folder, 'src', 'components', 'panel.tsx'), 'export const Panel = () => "hello";\n');
   projects.push({ id: randomUUID(), name, path: folder, unread: 0, done: false, seenEvents: [], lastCompletedAt: null });
 }
+const previewProject = projects[0].path;
+await fs.mkdir(path.join(previewProject, 'reports'));
+await fs.copyFile(path.join(root, 'src/assets/sky-canopy-oil.png'), path.join(previewProject, 'image-preview.png'));
+await fs.writeFile(path.join(previewProject, 'assets', 'preview.css'), 'body{margin:0;background:rgb(240,246,252);color:#243342;font:16px system-ui}main{padding:32px}img{width:320px;max-width:90%;border-radius:12px}button{padding:10px 20px;background:#246b55;color:white;border:0;border-radius:6px}output{margin:16px}');
+await fs.writeFile(path.join(previewProject, 'assets', 'message.mjs'), 'export const message = "LOCAL MODULE READY";');
+await fs.writeFile(path.join(previewProject, 'assets', 'data.json'), JSON.stringify({ label: 'LOCAL JSON READY' }));
+await fs.writeFile(path.join(previewProject, 'assets', 'preview.mjs'), 'import { message } from "./message.mjs"; document.querySelector("#script-status").textContent=message; const data=await fetch(new URL("./data.json", import.meta.url)).then(r=>r.json()); document.querySelector("#data-status").textContent=data.label; document.querySelector("#increment").onclick=()=>{document.querySelector("#count").textContent=String(Number(document.querySelector("#count").textContent)+1)};');
+await fs.writeFile(path.join(previewProject, 'reports', 'preview.html'), '<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><title>HTML preview fixture</title><link rel="stylesheet" href="../assets/preview.css"><main><h1>HTML 页面已渲染</h1><img src="../image-preview.png" alt="相对路径图片"><p id="script-status">Loading scripts</p><p id="data-status"></p><button id="increment">点击计数</button><output id="count">0</output></main><script type="module" src="../assets/preview.mjs"></script></html>');
 await fs.writeFile(path.join(dataDir, 'workspace.json'), JSON.stringify({ version: 1, projects, settings: { columns: 3, notifications: false, sound: false, closeToTray: true, fontSize: 12 } }));
 const env = { ...process.env, PROJECT_GRID_DATA_DIR: dataDir };
 env.NO_COLOR = '1';
@@ -165,6 +173,48 @@ try {
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].sessionId, sessionBefore);
   await page.screenshot({ path: path.join(output, 'file-preview.png') });
   await page.getByRole('button', { name: '关闭文件预览', exact: true }).click();
+  await page.getByRole('treeitem', { name: 'image-preview.png', exact: true }).click();
+  const imagePreview = page.locator('img.preview-image');
+  await waitFor(async () => imagePreview.evaluate(image => image.complete && image.naturalWidth > 1000), 'large PNG displayed inline');
+  const originalDimensions = await imagePreview.evaluate(image => ({ width: image.naturalWidth, height: image.naturalHeight }));
+  const fits = await imagePreview.evaluate(image => { const box = image.getBoundingClientRect(); const viewport = image.closest('.image-viewport').getBoundingClientRect(); return box.width <= viewport.width && box.height <= viewport.height; });
+  assert.equal(fits, true);
+  await page.screenshot({ path: path.join(output, 'png-preview.png') });
+  await page.getByRole('button', { name: '原始尺寸', exact: true }).click();
+  await waitFor(async () => imagePreview.evaluate((image, width) => Math.abs(image.getBoundingClientRect().width - width) < 2, originalDimensions.width), 'image original size');
+  await page.getByRole('button', { name: '适应窗口', exact: true }).click();
+  await fs.copyFile(path.join(root, 'assets', 'icon.png'), path.join(previewProject, 'image-preview.png'));
+  await page.getByRole('button', { name: '刷新文件', exact: true }).click();
+  await waitFor(async () => imagePreview.evaluate(image => image.complete && image.naturalWidth === 256), 'image refresh updates the pixels and dimensions');
+  const imageUrl = await imagePreview.getAttribute('src');
+  await page.getByRole('button', { name: '关闭文件预览', exact: true }).click();
+  assert.equal(await application.evaluate(async ({ net }, url) => (await net.fetch(url)).status, imageUrl), 404);
+  await fs.copyFile(path.join(root, 'src/assets/sky-canopy-oil.png'), path.join(previewProject, 'image-preview.png'));
+
+  await page.getByRole('treeitem', { name: 'reports', exact: true }).click();
+  await page.getByRole('treeitem', { name: 'preview.html', exact: true }).click();
+  const htmlFrame = page.frameLocator('iframe[title="HTML 页面预览"]');
+  await htmlFrame.getByRole('heading', { name: 'HTML 页面已渲染' }).waitFor();
+  await htmlFrame.getByText('LOCAL MODULE READY', { exact: true }).waitFor();
+  await htmlFrame.getByText('LOCAL JSON READY', { exact: true }).waitFor();
+  assert.equal(await htmlFrame.locator('body').evaluate(body => getComputedStyle(body).backgroundColor), 'rgb(240, 246, 252)');
+  await waitFor(async () => htmlFrame.locator('img').evaluate(image => image.complete && image.naturalWidth > 1000), 'HTML relative PNG loaded');
+  await htmlFrame.getByRole('button', { name: '点击计数' }).click();
+  assert.equal(await htmlFrame.locator('#count').innerText(), '1');
+  const isolated = await htmlFrame.locator('body').evaluate(() => {
+    let parentAccessible = false;
+    try { parentAccessible = !!parent.document; } catch {}
+    return { parentAccessible, bridge: typeof window.projectGrid, node: typeof window.require };
+  });
+  assert.deepEqual(isolated, { parentAccessible: false, bridge: 'undefined', node: 'undefined' });
+  await page.screenshot({ path: path.join(output, 'html-preview.png') });
+  await page.getByRole('button', { name: '源码', exact: true }).click();
+  assert.ok((await page.getByLabel('文件文本内容', { exact: true }).innerText()).includes('<h1>HTML 页面已渲染</h1>'));
+  await page.getByRole('button', { name: '页面', exact: true }).click();
+  await htmlFrame.getByRole('heading', { name: 'HTML 页面已渲染' }).waitFor();
+  await page.getByRole('button', { name: '返回终端', exact: true }).click();
+  assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].sessionId, sessionBefore);
+  console.log('PASS: PNG fit/original size/refresh and isolated HTML with CSS, modules, images, JSON and source toggle');
   const fullWidth = (await panel.boundingBox()).width;
   await page.getByRole('button', { name: '收起目录栏', exact: true }).click();
   await waitFor(async () => (await panel.boundingBox()).width > fullWidth + 100, 'collapsed sidebar frees terminal width');

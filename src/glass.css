@@ -151,6 +151,17 @@ kbd { border-color: #dbeeff26; color: #8ca3bd; background: #e9f4ff06; }
 .line-numbers > span { height: 22px; }.file-code pre { margin: 0; font: inherit; line-height: inherit; color: #d6e6f5; white-space: pre; tab-size: 2; }.file-code code { font: inherit; }
 .file-preview-message { display: flex; flex: 1; min-height: 0; padding: 30px; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: #a7bdd7; font-size: 12px; }.file-preview-message p { margin: 0 0 5px; }
 .file-preview-footer { height: 27px; flex: 0 0 27px; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; border-top: 1px solid #d9ebff16; font-size: 9px; color: #8ea6c1; }
+.image-controls, .preview-mode { display: flex; align-items: center; gap: 3px; padding-right: 9px; margin-right: 6px; border-right: 1px solid #dcecff25; }
+.preview-option { border: 1px solid transparent; border-radius: 4px; padding: 4px 7px; background: transparent; color: #b5cbe2; font-size: 10px; white-space: nowrap; }
+.preview-option:hover, .preview-option[aria-pressed="true"] { background: #d6eaff15; border-color: #def0ff2c; color: #e7f3ff; }
+.zoom-label { font: 10px Consolas, monospace; min-width: 38px; text-align: center; color: #b4cbe4; }
+.image-viewport { flex: 1; min-height: 0; min-width: 0; overflow: auto; background-color: #17232c; background-image: repeating-conic-gradient(#ffffff06 0% 25%, transparent 0% 50%); background-size: 20px 20px; }
+.image-canvas { display: flex; align-items: center; justify-content: center; padding: 20px; }
+.image-fit { width: 100%; height: 100%; }
+.image-fit .preview-image { max-width: 100%; max-height: 100%; object-fit: contain; }
+.image-zoomed { width: max-content; height: max-content; min-width: 100%; min-height: 100%; }
+.preview-image { display: block; flex-shrink: 0; box-shadow: 0 4px 28px #00000030; }
+.html-preview-frame { display: block; flex: 1; min-height: 0; width: 100%; border: 0; background: white; }
 
 @media (max-width: 1400px) {
   .workspace-header { grid-template-columns: 190px minmax(0, 1fr) auto; column-gap: 16px; }

@@ -13,6 +13,8 @@ export type FileEntry = { name: string; path: string; kind: 'directory' | 'file'
 export type DirectoryListing = { path: string; entries: FileEntry[]; total: number; nextOffset: number | null };
 export type FilePreview = { path: string; name: string; size: number; modifiedAt: number } & (
   { kind: 'text'; content: string } | { kind: 'unsupported'; reason: string }
+  | { kind: 'image'; mimeType: string; url: string; previewId: string }
+  | { kind: 'html'; content: string | null; url: string; previewId: string }
 );
 export type Bridge = {
   getState(): Promise<Result<Workspace>>;
@@ -25,6 +27,7 @@ export type Bridge = {
   openInCode(id: string, relativePath?: string): Promise<Result<void>>;
   listDirectory(id: string, relativePath?: string, offset?: number): Promise<Result<DirectoryListing>>;
   readFile(id: string, relativePath: string): Promise<Result<FilePreview>>;
+  closePreview(id: string): Promise<Result<void>>;
   revealProject(id: string): Promise<Result<void>>;
   startTerminal(id: string): Promise<Result<void>>;
   restartTerminal(id: string): Promise<Result<boolean>>;

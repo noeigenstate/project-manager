@@ -90,3 +90,25 @@ test('refresh observes created and removed entries and handles vanished files', 
   assert.equal((await listDirectory(project)).entries.length, 0);
   await assert.rejects(readProjectFile(project, 'new.txt'), /ENOENT/);
 });
+
+test('PNG images above the text limit still get image previews', async t => {
+  const { project } = await fixture(t);
+  await fs.writeFile(path.join(project.path, '图片.PNG'), Buffer.alloc(2 * 1024 * 1024));
+  const result = await readProjectFile(project, '图片.PNG');
+  assert.equal(result.kind, 'image');
+  assert.equal(result.mimeType, 'image/png');
+  assert.equal(Object.hasOwn(result, 'content'), false);
+});
+
+test('HTML defaults to a page preview and keeps source when small', async t => {
+  const { project } = await fixture(t);
+  const html = '<!doctype html><h1>预览页面</h1><script>window.ready=true</script>';
+  await fs.writeFile(path.join(project.path, 'index.html'), html);
+  const small = await readProjectFile(project, 'index.html');
+  assert.equal(small.kind, 'html');
+  assert.equal(small.content, html);
+  await fs.writeFile(path.join(project.path, 'large.html'), '<!doctype html>' + ' '.repeat(2 * 1024 * 1024));
+  const large = await readProjectFile(project, 'large.html');
+  assert.equal(large.kind, 'html');
+  assert.equal(large.content, null);
+});
