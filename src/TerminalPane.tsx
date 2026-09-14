@@ -30,6 +30,9 @@ export function TerminalPane({ id, sessionId, fontSize, onError, focused, onOpen
       fontFamily: "'Cascadia Code', 'Consolas', 'Microsoft YaHei UI', monospace",
       fontSize, lineHeight: 1.22, fontWeight: '400', scrollback: 3000, minimumContrastRatio: 4.5,
       cursorBlink: true, cursorStyle: 'bar', allowProposedApi: false, allowTransparency: true,
+      // Bundled ConPTY reflows the prompt on resize; the cursor line must follow
+      // that reflow too, or later output can overwrite old prompt characters.
+      reflowCursorLine: true,
       linkHandler: { activate: activateLink, hover: hoverLink, leave: leaveLink, allowNonHttpProtocols: true },
       theme: {
         background: '#00000000', foreground: '#f1f6fc', cursor: '#f1f6fc',

@@ -12,6 +12,7 @@ export type TerminalPacket = TerminalSnapshot & { id: string };
 export type FileEntry = { name: string; path: string; kind: 'directory' | 'file' | 'link' };
 export type DirectoryListing = { path: string; entries: FileEntry[]; total: number; nextOffset: number | null };
 export type TextPage = { index: number; count: number; byteStart: number; byteEnd: number; encoding: string };
+export type AppUpdateState = { supported: boolean; currentVersion: string; status: 'unavailable' | 'idle' | 'checking' | 'current' | 'downloading' | 'ready' | 'error'; version: string | null; percent: number; error: string | null };
 export type FilePreview = { path: string; name: string; size: number; modifiedAt: number } & (
   { kind: 'text'; content: string; page: TextPage } | { kind: 'unsupported'; reason: string }
   | { kind: 'image' | 'video'; mimeType: string; url: string; previewId: string }
@@ -19,6 +20,11 @@ export type FilePreview = { path: string; name: string; size: number; modifiedAt
 );
 export type Bridge = {
   getState(): Promise<Result<Workspace>>;
+  getUpdateState(): Promise<Result<AppUpdateState>>;
+  checkForUpdates(): Promise<Result<AppUpdateState>>;
+  installUpdate(): Promise<Result<boolean>>;
+  openDownloadPage(): Promise<Result<void>>;
+  onUpdateState(callback: (state: AppUpdateState) => void): () => void;
   addProjects(): Promise<Result<string[]>>;
   removeProject(id: string): Promise<Result<boolean>>;
   acknowledge(id: string): Promise<Result<void>>;

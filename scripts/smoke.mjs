@@ -38,6 +38,7 @@ await fs.copyFile(path.join(root, 'tests/fixtures/preview.webm'), path.join(prev
 await fs.copyFile(path.join(root, 'tests/fixtures/preview.mp4'), path.join(previewProject, 'preview.mp4'));
 await fs.writeFile(path.join(previewProject, 'large.log'), 'LARGE_FILE_START\n' + '中文🙂大文件预览数据\n'.repeat(120000) + 'LARGE_FILE_END');
 await fs.writeFile(path.join(previewProject, 'large.html'), '<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><h1>大 HTML 页面</h1><!--' + ' '.repeat(2 * 1024 * 1024) + '--><footer>LARGE_HTML_END</footer></html>');
+await fs.writeFile(path.join(previewProject, 'alt-screen.cjs'), "process.stdin.setRawMode(true); process.stdin.resume(); process.stdout.write('\\x1b[?1049h'); const render=()=>process.stdout.write('\\x1b[2J\\x1b[HCONPTY_ALT_SCREEN_OK '+process.stdout.columns+' columns\\r\\nPress q to return'); render(); process.stdout.on('resize', render); const timer=setInterval(render,250); process.stdin.on('data',data=>{if(data.toString().includes('q')){clearInterval(timer);process.stdout.removeListener('resize',render);process.stdin.setRawMode(false);process.stdout.write('\\x1b[?1049l',()=>process.exit(0))}});");
 await fs.writeFile(path.join(previewProject, 'assets', 'preview.css'), 'body{margin:0;background:rgb(240,246,252);color:#243342;font:16px system-ui}main{padding:32px}img{width:320px;max-width:90%;border-radius:12px}button{padding:10px 20px;background:#246b55;color:white;border:0;border-radius:6px}output{margin:16px}');
 await fs.writeFile(path.join(previewProject, 'assets', 'message.mjs'), 'export const message = "LOCAL MODULE READY";');
 await fs.writeFile(path.join(previewProject, 'assets', 'data.json'), JSON.stringify({ label: 'LOCAL JSON READY' }));
@@ -61,6 +62,7 @@ async function waitFor(fn, message, timeout = 20000) {
 }
 try {
   const captureFlags = ['--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling'];
+  if (process.argv.includes('--compact-screen')) captureFlags.push('--force-device-scale-factor=2');
   application = await electron.launch({ executablePath: packaged ? path.join(root, 'release/win-unpacked/Project Grid.exe') : require('electron'), args: [...(packaged ? [] : [root]), ...captureFlags], cwd: root, env, timeout: 30000 });
   console.log(`Desktop test process: ${application.process().pid}; screenshots: ${output}`);
   application.process().stderr.on('data', data => { const text = data.toString(); if (/Uncaught|Error:|failed to load/i.test(text)) errors.push(text); });
@@ -285,6 +287,14 @@ try {
   }
   console.log('PASS: actual WebM and MP4 decoding, playback, pause, seeking and partial-content protocol responses');
 
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, 'node ./alt-screen.cjs\r'), projects[0].id);
+  await waitFor(async () => panel.locator('.xterm-rows > div').evaluateAll(rows => rows.some(row => row.textContent.includes('CONPTY_ALT_SCREEN_OK') && !row.textContent.includes('node '))), 'interactive alternate-screen terminal');
+  await page.getByRole('button', { name: '收起目录栏', exact: true }).click();
+  await page.getByRole('button', { name: '展开目录栏', exact: true }).click();
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, 'q'), projects[0].id);
+  await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady, 'alternate-screen app exits after resizing without a cursor-report loop');
+  console.log('PASS: interactive alternate-screen app remains responsive through terminal resizing');
+
   const clickTerminalText = async (text, control = true) => {
     const row = panel.locator('.xterm-rows > div').filter({ hasText: text }).last();
     await row.waitFor();
@@ -322,6 +332,7 @@ try {
     await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady, 'shell prompt after printing links');
   };
   await printLine('中文链接 image-preview.png');
+  await waitFor(async () => panel.locator('.xterm-rows > div').evaluateAll(rows => rows.some(row => row.textContent.trim() === '中文链接 image-preview.png')), 'terminal output after preview and fullscreen resizing is not overwritten by an old prompt');
   await clickTerminalText('image-preview.png', false);
   assert.equal(await page.locator('.file-preview').count(), 0, 'ordinary click does not open a file');
   await clickTerminalText('image-preview.png');
@@ -387,11 +398,14 @@ try {
   await page.screenshot({ path: path.join(output, 'grid.png') });
   await page.getByRole('button', { name: /设置/ }).click();
   await page.waitForSelector('dialog[open]');
+  await page.getByRole('region', { name: '应用更新', exact: true }).waitFor();
+  assert.equal((await page.evaluate(() => window.projectGrid.getUpdateState())).value.supported, false, 'unpacked and development builds cannot install over an installed app');
+  assert.equal((await page.evaluate(() => window.projectGrid.installUpdate())).ok, false, 'installing before a verified download is rejected');
   await page.screenshot({ path: path.join(output, 'settings.png') });
   await page.getByRole('button', { name: '关闭设置', exact: true }).click();
-  for (const width of [1600, 1200, 900, 820]) {
+  for (const width of process.argv.includes('--compact-screen') ? [1600, 1400] : [1600, 1200, 900, 820]) {
     await application.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 700), width);
-    await waitFor(async () => page.evaluate(width => window.innerWidth === width, width), 'window resized');
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const positions = await page.evaluate(() => {
       const bar = document.querySelector('.titlebar').getBoundingClientRect();
       return [...document.querySelectorAll('.titlebar-tools > *, .window-actions')].every(node => {

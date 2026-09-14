@@ -12,6 +12,7 @@ const { isTerminalResponse, acceptShellEvent } = require('./terminal-input.cjs')
 const { createTerminalEnvironment } = require('./terminal-env.cjs');
 const { PreviewResources, resourceResponse } = require('./preview-resources.cjs');
 const { resolveTerminalLink } = require('./terminal-links.cjs');
+const { UpdateManager, isInstalledBuild } = require('./updates.cjs');
 
 const root = path.join(__dirname, '..');
 const integrationDir = app.isPackaged ? path.join(process.resourcesPath, 'integration') : path.join(root, 'integration');
@@ -24,7 +25,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'project-preview', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
 
-let window, tray, store, eventServer, quitting = false;
+let window, tray, store, eventServer, updateManager, quitting = false, installingUpdate = false;
 const sessions = new Map();
 const branches = new Map();
 const startupErrors = new Map();
@@ -245,6 +246,28 @@ async function requestQuit() {
 }
 
 function registerIpc() {
+  handle('updates:state', () => updateManager.getState());
+  handle('updates:check', () => updateManager.check());
+  handle('updates:download-page', () => shell.openExternal('https://github.com/noeigenstate/project-manager/releases/latest'));
+  handle('updates:install', async () => {
+    if (installingUpdate) return false;
+    if (!updateManager.canInstall()) throw new Error('更新尚未下载完成。');
+    installingUpdate = true;
+    try {
+      const count = [...sessions.values()].filter(session => session.status !== 'exited').length;
+      if (count) {
+        const result = await dialog.showMessageBox(window, {
+          type: 'question', title: '重启并安装更新', message: `重启会关闭 ${count} 个终端`,
+          detail: '请先确认任务已经完成。取消后，下载好的更新会继续保留。',
+          buttons: ['继续工作', '关闭终端并更新'], defaultId: 0, cancelId: 0,
+        });
+        if (result.response !== 1) { installingUpdate = false; return false; }
+      }
+      quitting = true;
+      updateManager.install();
+      return true;
+    } catch (error) { quitting = false; installingUpdate = false; throw error; }
+  });
   handle('workspace:state', publicState);
   handle('workspace:add', async () => {
     const result = await dialog.showOpenDialog(window, { title: '添加项目文件夹（可多选）', properties: ['openDirectory', 'multiSelections'] });
@@ -355,6 +378,13 @@ else {
     store = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace.json'));
     runtimeDir = fs.mkdtempSync(path.join(app.getPath('userData'), 'runtime-'));
     eventServer = await createEventServer(onEvent);
+    updateManager = new UpdateManager({
+      updater: isInstalledBuild(app.isPackaged, process.execPath) ? require('electron-updater').autoUpdater : null,
+      version: app.getVersion(), onChange: state => {
+        if (state.status === 'error' && installingUpdate) { installingUpdate = false; quitting = false; }
+        send('updates:changed', state);
+      },
+    });
     protocol.handle('project-grid', request => {
       const url = new URL(request.url);
       if (url.host !== 'app') return new Response('Not found', { status: 404 });
@@ -407,6 +437,7 @@ else {
     for (const project of store.projects) captureBranch(project);
     await window.loadURL(devUrl || 'project-grid://app/index.html');
     updateIndicators();
+    if (!process.env.PROJECT_GRID_DATA_DIR) updateManager.start();
   }).catch(error => {
     dialog.showErrorBox('Project Grid 无法启动', String(error?.stack || error));
     app.exit(1);
@@ -414,6 +445,7 @@ else {
 }
 app.on('before-quit', () => {
   quitting = true;
+  updateManager?.dispose();
   clearTimeout(stateTimer);
   for (const id of sessions.keys()) disposeTerminal(id);
   eventServer?.close();

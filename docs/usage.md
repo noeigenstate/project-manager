@@ -8,7 +8,17 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 
 从 [Releases](https://github.com/noeigenstate/project-manager/releases/latest) 下载 Windows `.exe` 即可使用。正式版本在 Releases 中长期保留，普通 CI 构建仍可从 Actions 的 Artifacts 下载。
 
-打包后的应用位于 `release/`。双击 `Project-Grid-0.2.5-win-x64.exe` 即可启动，也可以打开 `release/win-unpacked/Project Grid.exe`。更新时，在旧版设置或托盘菜单中退出应用后再启动新版；项目列表与完成标记会保留。
+打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.2.6-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.2.6-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
+
+## 自动更新
+
+- 安装版启动约 20 秒后自动检查 GitHub Releases，之后每 4 小时检查一次；也可以在设置中手动检查。
+- 有新版本时在后台下载，设置中显示当前版本与下载进度；下载完成后，顶部设置图标出现提示点。
+- 点击「重启并安装更新」才会退出安装。仍有终端打开时会先确认，取消后可以继续工作，不会强制重启。
+- 便携版和未安装的解包目录不执行自动更新，设置中提供安装版下载入口。
+- 更新使用 Release 中的安装程序、`latest.yml` 和 `.blockmap`，下载后由 electron-updater 校验文件摘要。更新失败可在设置中重试。
+
+## 日常操作
 
 1. 点击 **添加项目**，选择一个或多个项目目录。
 2. 在每个方框里输入 `codex`，或者点击 **启动 Codex**。已经保存的对话可以用 `codex resume` 选择；若会话仍在其他窗口运行，先在原窗口结束当前会话，再在这里恢复。
@@ -91,18 +101,21 @@ npm run dist
 - `build`：TypeScript 检查和前端构建。
 - `test`：状态持久化、事件传输、终端环境、目录与大文本分页、Unicode 边界、图片识别、视频字节范围、链接解析及预览访问边界测试。
 - `test:desktop`：真实终端和按钮交互、通知、目录、PNG 显示/缩放/刷新、HTML/CSS/脚本加载与隔离、视频播放/暂停/跳转/全屏、大文本翻页、Ctrl 单击普通与 OSC 8 链接，以及窄窗口检查。不会向模型提交编码任务，不会修改日常工作区设置。截图在 `.test-output/desktop-*/`。添加 `-- --packaged` 可检查打包后的应用。
-- `dist`：生成 Windows x64 免安装可执行文件和 `win-unpacked`。
+- `dist`：生成 Windows x64 NSIS 安装程序、便携版、`latest.yml`、`.blockmap` 和 `win-unpacked`。
+- `node scripts/verify-update-artifacts.cjs`：校验安装包、SHA-512、更新清单和应用内置更新源。
+
+终端依赖锁定为 `node-pty@1.2.0-beta.15`，使用其随包提供的 ConPTY 1.25，修复旧版在窗口缩放后光标坐标不同步的问题。相关上游说明见 [microsoft/terminal#18725](https://github.com/microsoft/terminal/issues/18725)。渲染端同步启用光标所在行的重排，并在预览期间保持终端布局。
 
 ## GitHub 自动构建
 
 [Windows 构建工作流](https://github.com/noeigenstate/project-manager/actions/workflows/build-windows.yml) 使用 GitHub 托管的 `windows-latest` runner，无需配置单独的 webhook 服务。
 
 - 推送到 `main`、推送 `v*` 标签、提交面向 `main` 的 PR，或在 Actions 页面点击 **Run workflow** 都会触发。
-- 流程：`npm ci` → 单元测试 → 生成 Windows x64 免安装版 → 打包版桌面测试 → 上传可执行文件和 SHA-256 校验信息。
+- 流程：`npm ci` → 单元测试 → 生成 Windows 安装版与便携版 → 校验自动更新文件 → 打包版桌面测试 → 上传可执行文件和 SHA-256 校验信息。
 - 桌面回归测试会实际点击「启动终端」，覆盖网格和全屏，确认按键不被遮挡，再检查真实 PowerShell 与 Codex CLI 启动。
 - Codex 检查只运行版本和配置命令，不调用模型，不需要 API 密钥或 ChatGPT 登录。
 - 构建通过后，在对应运行的 **Artifacts** 中下载 **Project-Grid-windows-x64**，解压后双击 `.exe`。产物保留 30 天；测试截图保留 7 天。
-- 推送与 `package.json` 一致的版本标签（如 `v0.2.1`）时，构建与测试通过后会自动创建 GitHub Release，并附上 `.exe`、SHA-256 校验文件和构建信息；普通 `main` 推送只生成 Artifacts。
+- 推送与 `package.json` 一致的版本标签（如 `v0.2.6`）时，构建与测试通过后会自动创建 GitHub Release，附上两个 `.exe`、`latest.yml`、`.blockmap`、SHA-256 校验文件和构建信息；普通 `main` 推送只生成 Artifacts。
 - 发布任务会重新校验下载产物，只为发布阶段申请仓库写权限。已发布的版本不会被重跑任务覆盖；预发布版本会标为 prerelease。
 - GitHub Packages 面向 npm、NuGet、容器等软件包；本项目以 Windows 可执行文件交付，下载入口是 Releases。
 

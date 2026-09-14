@@ -23,6 +23,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       binary: ${{ steps.version.outputs.binary }}
+      installer: ${{ steps.version.outputs.installer }}
     defaults:
       run:
         shell: pwsh
@@ -52,6 +53,7 @@ jobs:
           }
           "version=$version" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
           "binary=Project-Grid-$version-win-x64.exe" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+          "installer=Project-Grid-Setup-$version-x64.exe" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
@@ -62,33 +64,44 @@ jobs:
       - name: Run unit and integration tests
         run: npm test
 
-      - name: Build portable Windows executable
+      - name: Build Windows installer and portable executable
         run: npm run dist
+
+      - name: Verify installer and automatic update metadata
+        run: node scripts/verify-update-artifacts.cjs
 
       - name: Verify desktop with actual terminal button clicks
         run: npm run test:desktop -- --packaged
 
       - name: Create checksum and build notes
         run: |
-          $executables = @(Get-ChildItem -LiteralPath release -Filter 'Project-Grid-*-win-x64.exe')
-          if ($executables.Count -ne 1) { throw 'Expected exactly one portable executable.' }
-          $binary = $executables[0]
-          $digest = (Get-FileHash -LiteralPath $binary.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$digest  $($binary.Name)" | Set-Content -LiteralPath release/SHA256SUMS.txt -Encoding utf8
+          $version = '${{ steps.version.outputs.version }}'
+          $portable = "Project-Grid-$version-win-x64.exe"
+          $installer = "Project-Grid-Setup-$version-x64.exe"
+          $files = @($portable, $installer, "$installer.blockmap", 'latest.yml')
+          $checksums = foreach ($name in $files) {
+            $file = Join-Path release $name
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing release file: $name" }
+            $digest = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $name"
+          }
+          $checksums | Set-Content -LiteralPath release/SHA256SUMS.txt -Encoding utf8
           @(
-            'Project Grid — Windows x64 portable build'
+            'Project Grid — Windows x64 installer and portable build'
             "Commit: $env:GITHUB_SHA"
-            "File: $($binary.Name)"
-            'Download the artifact below and extract it, then run the .exe.'
+            "Installer with automatic updates: $installer"
+            "Portable edition: $portable"
+            'Install the Setup executable to enable background update checks and downloads.'
             'Codex CLI must be installed separately on the target computer.'
           ) | Set-Content -LiteralPath release/BUILD-INFO.txt -Encoding utf8
           @(
             '## Windows build is ready'
-            "- Executable: **$($binary.Name)**"
+            "- Installer: **$installer**"
+            "- Portable: **$portable**"
             "- Commit: $env:GITHUB_SHA"
             '- Unit tests and packaged desktop tests passed, including actual Start terminal clicks.'
             '- Download **Project-Grid-windows-x64** from the Artifacts section of this run.'
-            "- SHA-256: $digest"
+            '- SHA-256 checksums and the automatic update feed are included.'
           ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
 
       - name: Upload verified executable
@@ -96,7 +109,9 @@ jobs:
         with:
           name: Project-Grid-windows-x64
           path: |
-            release/Project-Grid-*-win-x64.exe
+            release/Project-Grid-*.exe
+            release/Project-Grid-*.exe.blockmap
+            release/latest.yml
             release/SHA256SUMS.txt
             release/BUILD-INFO.txt
           compression-level: 0
@@ -136,23 +151,29 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_VERSION: ${{ needs.windows.outputs.version }}
           RELEASE_BINARY: ${{ needs.windows.outputs.binary }}
+          RELEASE_INSTALLER: ${{ needs.windows.outputs.installer }}
         run: |
           set -euo pipefail
           test "$RELEASE_TAG" = "v$RELEASE_VERSION"
           cd release-assets
           test -f "$RELEASE_BINARY"
+          test -f "$RELEASE_INSTALLER"
+          test -f latest.yml
           sha256sum --check SHA256SUMS.txt
+          assets=("$RELEASE_BINARY" "$RELEASE_INSTALLER" "$RELEASE_INSTALLER.blockmap" latest.yml SHA256SUMS.txt BUILD-INFO.txt)
 
           cat > release-notes.md <<EOF
-          Windows x64 portable build of Project Grid.
+          Windows x64 installer and portable editions of Project Grid.
 
-          Download **$RELEASE_BINARY** below and double-click it to run.
+          **Recommended:** install **$RELEASE_INSTALLER** to enable automatic update checks and background downloads.
+          For a portable copy, download **$RELEASE_BINARY**.
           Codex CLI must be installed separately on the target computer.
 
           - Multiple project terminals with completion alerts.
           - Fullscreen project view, collapsible file explorer, and frosted glass interface.
           - Compact top titlebar, brighter text and Ctrl-click terminal links.
           - Inline image and video viewing, large text pages and isolated HTML previews.
+          - The installed edition downloads updates in the background. Restart and install from Settings when your tasks are finished.
           - Verified with unit tests and packaged desktop tests, including real terminal button clicks.
 
           Commit: $GITHUB_SHA
@@ -167,14 +188,14 @@ jobs:
             # A rerun may finish its own draft, but must never replace a published binary.
             jq -e --arg commit "$GITHUB_SHA" '.targetCommitish == $commit' existing-release.json
             if [[ "$(jq -r '.isDraft' existing-release.json)" == 'false' ]]; then
-              jq -e --arg binary "$RELEASE_BINARY" 'any(.assets[]; .name == $binary) and any(.assets[]; .name == "SHA256SUMS.txt")' existing-release.json
+              jq -e --arg binary "$RELEASE_BINARY" --arg installer "$RELEASE_INSTALLER" 'any(.assets[]; .name == $binary) and any(.assets[]; .name == $installer) and any(.assets[]; .name == "latest.yml")' existing-release.json
               echo "Release $RELEASE_TAG is already published."
               exit 0
             fi
-            gh release upload "$RELEASE_TAG" "$RELEASE_BINARY" SHA256SUMS.txt BUILD-INFO.txt --clobber
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
             gh release edit "$RELEASE_TAG" --draft=false --title "Project Grid $RELEASE_TAG" --notes-file release-notes.md "${flags[@]}"
           else
-            gh release create "$RELEASE_TAG" "$RELEASE_BINARY" SHA256SUMS.txt BUILD-INFO.txt \
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
               --verify-tag --target "$GITHUB_SHA" --title "Project Grid $RELEASE_TAG" \
               --notes-file release-notes.md "${flags[@]}"
           fi

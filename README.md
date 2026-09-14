@@ -11,7 +11,7 @@
   <a href="https://github.com/noeigenstate/project-manager/releases/latest"><img src="https://img.shields.io/github/v/release/noeigenstate/project-manager?style=flat-square&color=78bfa1&label=release" alt="Latest release" /></a>
   <a href="https://github.com/noeigenstate/project-manager/actions/workflows/build-windows.yml"><img src="https://github.com/noeigenstate/project-manager/actions/workflows/build-windows.yml/badge.svg?branch=main" alt="Windows build and desktop tests" /></a>
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011%20%C2%B7%20x64-8ebce5?style=flat-square" alt="Windows 10 / 11 x64" />
-  <img src="https://img.shields.io/badge/Desktop-Portable-d8dfe8?style=flat-square" alt="Portable desktop app" />
+  <img src="https://img.shields.io/badge/Desktop-Installer%20%2B%20Portable-d8dfe8?style=flat-square" alt="Installer and portable editions" />
 </p>
 
 <p align="center">
@@ -80,16 +80,20 @@ Project Grid 把项目放进同一个窗口：每个方框都有独立终端，C
 
 树影、蓝天、白云的油画背景，搭配半透明磨玻璃面板。正文、路径和终端文字经过提亮，文字区域加深底色，减少背景干扰。系统启用减少动态效果时，提醒会保留颜色并停止闪烁。
 
+### 🔄 安装一次，后续更新更省心
+
+Windows 安装版会自动检查新版本，在后台下载更新。设置中可以查看当前版本、下载进度，并一键重启安装；仍有终端打开时，会先确认是否结束任务。更新不会擅自重启正在工作的窗口。
+
 ## 开始使用
 
 **Windows 10 / 11 · x64 · 本机已安装 Codex CLI，并可在 PowerShell 中运行。**
 
-1. 从 [Releases 下载最新版](https://github.com/noeigenstate/project-manager/releases/latest)，双击 `Project-Grid-版本号-win-x64.exe`，无需安装。
+1. 从 [Releases 下载最新版](https://github.com/noeigenstate/project-manager/releases/latest)，运行 `Project-Grid-Setup-版本号-x64.exe` 完成安装，后续可自动检查和下载更新。临时使用也可选择免安装的 `Project-Grid-版本号-win-x64.exe`。
 2. 点击顶部 **添加项目**，选择项目目录。在终端输入 `codex`，或点击 **启动 Codex**。
 3. 红框亮起后点开，查看结果并继续对话。完成后点击 **返回总览**。
 4. 整个项目做完时，点击 **标记开发完成**，让它以绿色常亮留在总览中。
 
-> **更新已有版本：**先等正在运行的任务结束，再从设置或托盘菜单退出旧版，然后启动新文件。只关闭窗口可能会缩到托盘，仍然运行旧版。项目列表和完成标记会保留。
+> **从旧版迁移：**先等任务结束，再从设置或托盘退出旧版，运行新的安装包。只关闭窗口可能仍在托盘运行。项目列表和完成标记会保留；安装版后续更新可在设置中完成，便携版需要手动下载新文件。
 
 | 快捷操作 | 功能 |
 | --- | --- |
@@ -153,10 +157,10 @@ npm start
 npm run build          # 类型检查与前端构建
 npm test               # 状态、文件读取、链接与资源访问测试
 npm run test:desktop   # 真实桌面、终端、图片与视频交互验证
-npm run dist           # 构建 Windows 免安装版
+npm run dist           # 构建 Windows 安装版、便携版与更新文件
 ```
 
-采用 **Electron · React · TypeScript · xterm.js · node-pty**。GitHub Actions 自动构建 Windows 可执行文件；版本标签通过单元测试和打包版桌面测试后发布到 Releases，并附 SHA-256 校验信息。详细说明见 [开发与发布文档](docs/usage.md#github-自动构建)。
+采用 **Electron · React · TypeScript · xterm.js · node-pty**。GitHub Actions 自动构建 Windows 安装版和便携版；版本标签通过单元测试和打包版桌面测试后发布到 Releases，并附自动更新文件与 SHA-256 校验信息。详细说明见 [开发与发布文档](docs/usage.md#github-自动构建)。
 
 ---
 

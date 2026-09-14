@@ -5,7 +5,7 @@ import {
   GearSix, CheckCircle, FolderOpen, Power, ArrowCounterClockwise,
   ArrowSquareOut, Monitor, Info, Circle, SpeakerHigh,
 } from '@phosphor-icons/react';
-import type { Project, Result, Settings, Workspace } from './types';
+import type { AppUpdateState, Project, Result, Settings, Workspace } from './types';
 import { TerminalPane } from './TerminalPane';
 import { ProjectExplorer } from './ProjectExplorer';
 import { FilePreview } from './FilePreview';
@@ -117,8 +117,9 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   </article>;
 }
 
-function SettingsDialog({ settings, close, update, quit }: {
+function SettingsDialog({ settings, updates, onCheckUpdate, onInstallUpdate, onDownloadPage, close, update, quit }: {
   settings: Settings; close: () => void; update: (patch: Partial<Settings>) => void; quit: () => void;
+  updates: AppUpdateState | null; onCheckUpdate: () => void; onInstallUpdate: () => void; onDownloadPage: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
@@ -130,6 +131,20 @@ function SettingsDialog({ settings, close, update, quit }: {
       <label className="setting-row"><span><SpeakerHigh size={19} /><span><b>通知声音</b><small>播放系统默认提示音</small></span></span><input type="checkbox" checked={settings.sound} onChange={e => update({ sound: e.target.checked })} /></label>
       <label className="setting-row"><span><Monitor size={19} /><span><b>关闭到托盘</b><small>关闭窗口后，终端和任务继续运行</small></span></span><input type="checkbox" checked={settings.closeToTray} onChange={e => update({ closeToTray: e.target.checked })} /></label>
       <label className="setting-row"><span><TerminalIcon size={19} /><span><b>终端字号</b><small>全屏与网格共用字号</small></span></span><select aria-label="终端字号" value={settings.fontSize} onChange={e => update({ fontSize: Number(e.target.value) })}>{[10, 11, 12, 13, 14, 16, 18, 20].map(n => <option key={n} value={n}>{n} px</option>)}</select></label>
+      {updates && <section className="update-section" aria-label="应用更新">
+        <div className="update-heading"><b>应用更新</b><span>当前版本 v{updates.currentVersion}</span></div>
+        <p role="status">{updates.status === 'unavailable' ? '当前为便携版或开发版。安装 Windows 版后，即可自动检查和下载更新。'
+          : updates.status === 'checking' ? '正在检查更新…'
+          : updates.status === 'current' ? '当前已是最新版本。'
+          : updates.status === 'downloading' ? `正在下载 v${updates.version} · ${updates.percent}%`
+          : updates.status === 'ready' ? `v${updates.version} 已下载，可在方便时重启安装。`
+          : updates.status === 'error' ? updates.error : '启动后自动检查更新，并在后台下载新版本。'}</p>
+        {updates.status === 'downloading' && <progress aria-label="更新下载进度" max={100} value={updates.percent} />}
+        <div className="update-actions">{!updates.supported
+          ? <button className="button secondary small" onClick={onDownloadPage}>下载 Windows 安装版</button>
+          : updates.status === 'ready' ? <button className="button primary small" onClick={onInstallUpdate}>重启并安装更新</button>
+          : <button className="button secondary small" disabled={updates.status === 'checking' || updates.status === 'downloading'} onClick={onCheckUpdate}>{updates.status === 'error' ? '重试更新' : '检查更新'}</button>}</div>
+      </section>}
       <div className="settings-note"><Info size={15} /><p>红色闪烁表示一轮结束、等待查看；绿色常亮表示你已确认项目开发完成。减少动态效果的系统设置会同时关闭闪烁。</p></div>
       <div className="dialog-footer"><button className="text-button danger-text" onClick={quit}><Power size={15} />退出应用</button><button className="button primary" onClick={close}>完成</button></div>
     </div>
@@ -138,6 +153,7 @@ function SettingsDialog({ settings, close, update, quit }: {
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [updates, setUpdates] = useState<AppUpdateState | null>(null);
   const [query, setQuery] = useState('');
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -177,9 +193,11 @@ export function App() {
     const offState = api.onState(setWorkspace);
     const offFocus = api.onFocusProject(focusProject);
     const offError = api.onError(reportError);
+    const offUpdates = api.onUpdateState(setUpdates);
+    perform(api.getUpdateState()).then(state => { if (state) setUpdates(state); });
     perform(api.getState()).then(state => { if (state) setWorkspace(state); });
     const clock = setInterval(() => setNow(Date.now()), 5000);
-    return () => { offState(); offFocus(); offError(); clearInterval(clock); if (errorTimer.current) clearTimeout(errorTimer.current); };
+    return () => { offState(); offFocus(); offError(); offUpdates(); clearInterval(clock); if (errorTimer.current) clearTimeout(errorTimer.current); };
   }, [focusProject, perform, reportError]);
   useEffect(() => {
     if (focusedId && workspace && !workspace.projects.some(p => p.id === focusedId)) returnToGrid();
@@ -222,7 +240,7 @@ export function App() {
       {!focusedId && <div className="titlebar-tools">
         <div className="search-input"><MagnifyingGlass size={16} /><input ref={queryInput} placeholder="搜索项目或路径…" aria-label="搜索项目" value={query} onChange={e => setQuery(e.target.value)} />{query ? <IconButton label="清除搜索" onClick={() => setQuery('')}><X size={13} /></IconButton> : <kbd>Ctrl K</kbd>}</div>
         <button className="button primary" onClick={addProjects} disabled={adding}><FolderSimplePlus size={17} />{adding ? '选择目录中…' : '添加项目'}</button>
-        <IconButton label="工作台设置" onClick={() => setSettingsOpen(true)}><GearSix size={19} /></IconButton>
+        <IconButton label="工作台设置" className={updates?.status === 'ready' ? 'update-ready' : ''} onClick={() => setSettingsOpen(true)}><GearSix size={19} /></IconButton>
       </div>}
       <div className="window-actions"><IconButton label="最小化" onClick={() => api.minimize()}><Minus size={16} /></IconButton><IconButton label="最大化或还原" onClick={() => api.maximize()}><Square size={12} /></IconButton><IconButton label="关闭窗口" className="window-close" onClick={() => api.close()}><X size={17} /></IconButton></div>
     </div>
@@ -236,7 +254,7 @@ export function App() {
       <main className="main-workspace">
         {workspace.warning && <div className="workspace-warning"><Info size={15} />{workspace.warning}</div>}
         {focusedId && previewFile?.projectId === focusedId && <FilePreview key={`${focusedId}:${previewFile.path}`} projectId={focusedId} filePath={previewFile.path} onClose={() => setPreviewFile(null)} onError={reportError} />}
-        <div className={`grid-area ${!projects.length ? 'empty-area' : ''}`} style={{ display: focusedId && previewFile?.projectId === focusedId ? 'none' : undefined }}>
+        <div className={`grid-area ${!projects.length ? 'empty-area' : ''}`} style={{ visibility: focusedId && previewFile?.projectId === focusedId ? 'hidden' : undefined }}>
           {!projects.length ? <div className="empty-workspace">
             <div className="empty-illustration" aria-hidden="true"><div className="illustration-tile"><span /><i /><i /><i /></div><div className="illustration-tile red-tile"><span /><i /><i /><b /></div><div className="illustration-tile green-tile"><Check size={22} /></div><div className="illustration-tile"><span /><i /><i /></div></div>
             <span className="eyebrow">你的多项目工作台</span><h2>每个项目，一个方框。</h2><p>添加项目目录，在独立终端里运行 Codex。<br />红框亮起时，点击全屏查看，再继续下一轮。</p>
@@ -255,6 +273,6 @@ export function App() {
       </main>
     </div>
     {error && <div className="error-toast" role="alert"><Info size={18} /><span>{error}</span><IconButton label="关闭提示" onClick={() => setError(null)}><X size={16} /></IconButton></div>}
-    {settingsOpen && <SettingsDialog settings={settings} close={() => setSettingsOpen(false)} update={setPreference} quit={() => perform(api.quit())} />}
+    {settingsOpen && <SettingsDialog settings={settings} updates={updates} onCheckUpdate={() => { perform(api.checkForUpdates()); }} onInstallUpdate={() => { perform(api.installUpdate()); }} onDownloadPage={() => { perform(api.openDownloadPage()); }} close={() => setSettingsOpen(false)} update={setPreference} quit={() => perform(api.quit())} />}
   </div>;
 }
