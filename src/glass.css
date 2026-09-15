@@ -54,6 +54,7 @@ kbd { border-color: #dbeeff26; color: #8ca3bd; background: #e9f4ff06; }
 .has-unread .panel-header { background: rgba(203, 114, 141, .095); border-color: #f1a7b628; }
 .attention-callout { color: #ffced5; background: rgba(91, 47, 68, .78); border-color: #ef9ca85c; box-shadow: inset 0 1px 0 #ffffff0c, 0 5px 18px #0c101c4d; backdrop-filter: blur(18px); border-radius: 7px; }
 .attention-overlay:hover { background: #fdc4cf05; }
+.attention-overlay { inset: auto 12px 12px; padding: 0; }
 .project-panel.is-done { background: rgba(31, 55, 51, .72); border-color: #8cc9a778; box-shadow: inset 0 1px 0 #c8ffe51a, 0 8px 28px #06181122; animation: none; }
 .is-done .panel-header { background: #a4e6c40c; border-color: #c1ffde1a; }
 @keyframes attention-border { 0%, 100% { border-color: #f394a4; box-shadow: inset 0 1px 0 #ffdde515, 0 0 0 1px #f3a5b05b, 0 0 20px #f7789820; } 50% { border-color: #a35f758c; box-shadow: inset 0 1px 0 #ffdde508, 0 0 0 1px #ee859a0a; } }
@@ -73,6 +74,20 @@ kbd { border-color: #dbeeff26; color: #8ca3bd; background: #e9f4ff06; }
 .update-section progress { display: block; width: 100%; height: 6px; margin-bottom: 14px; accent-color: #a4d5be; }
 .update-actions { display: flex; justify-content: flex-end; }
 .update-ready { position: relative; }.update-ready::after { content: ''; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: #a3e3bd; box-shadow: 0 0 0 2px #233246; }
+.project-dialog, .ssh-auth-dialog { width: min(560px, calc(100vw - 40px)); }
+.project-kind-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 24px 0 18px; }
+.project-kind-selector button { display: flex; align-items: center; gap: 12px; padding: 15px 12px; text-align: left; border: 1px solid #d4e7fa27; border-radius: 8px; background: #d6e8fc08; }
+.project-kind-selector button[aria-pressed="true"] { border-color: #b8d7ef80; background: #d6e8fc18; }
+.project-kind-selector b { display: block; font-size: 13px; font-weight: 500; }.project-kind-selector small { display: block; margin-top: 5px; font-size: 10px; color: #c0d2e3; }
+.remote-project-fields { display: flex; flex-direction: column; gap: 15px; }.remote-project-fields label { display: block; font-size: 12px; }.remote-project-fields label > span { color: #a9bed2; font-size: 10px; }
+.remote-project-fields input, .ssh-secret-input { display: block; width: 100%; margin-top: 8px; padding: 10px 12px; border: 1px solid #bfd7ef38; border-radius: 6px; color: #eef6ff; background: #0b1b299c; -webkit-app-region: no-drag; }
+.remote-project-fields input::placeholder { color: #a5bbd1; }.project-add-note { color: #c0d1e3; line-height: 1.8; font-size: 11px; margin: 9px 0; }
+.ssh-config-path { margin: 0; color: #a5bbcf; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.form-error { font-size: 12px; color: #ffb7bf; line-height: 1.6; }.ssh-auth-dialog h2 { display: flex; align-items: center; gap: 10px; }
+.ssh-auth-host { font-size: 13px; color: #c7def3; margin-top: 20px; }.ssh-auth-message { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.8 Consolas, 'Microsoft YaHei UI', monospace; color: #e5eff8; max-height: 230px; overflow: auto; }
+.panel-name .ssh-project-label { max-width: 130px; color: #b7d8e8; }
+.terminal-context-menu { position: fixed; z-index: 120; width: 218px; padding: 6px; }
+.terminal-context-menu button { display: flex; justify-content: space-between; align-items: center; gap: 10px; }.terminal-context-menu button > span { color: #a9bfd4; font-size: 10px; }.terminal-context-menu button:disabled { cursor: default; }
 .settings-dialog::backdrop { background: #07111f7d; backdrop-filter: blur(5px); }
 .settings-intro, .setting-row small, .settings-note { color: #a4b6ce; }.setting-row { border-color: #dcedff19; }.setting-row svg { color: #b1c4dc; }
 .setting-row select { background: #1b2c41; color: #dfebf9; border-color: #e4f1ff32; }

@@ -123,7 +123,7 @@ export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFil
       <button className="icon-button sidebar-toggle" onClick={onCollapse} title={collapsed ? '展开目录栏 · Ctrl+B' : '收起目录栏 · Ctrl+B'} aria-label={collapsed ? '展开目录栏' : '收起目录栏'} aria-expanded={!collapsed}><SidebarSimple size={18} /></button>
     </div>
     <div className="explorer-content" hidden={collapsed}>
-      <div className="explorer-project"><span className="eyebrow">当前项目</span><h2>{project.name}</h2><p title={project.path}>{project.path}</p>{project.branch && <span className="explorer-branch">{project.branch}</span>}</div>
+      <div className="explorer-project"><span className="eyebrow">{project.kind === 'ssh' ? `SSH · ${project.ssh?.host}` : '当前项目'}</span><h2>{project.name}</h2><p title={project.path}>{project.path}</p>{project.branch && <span className="explorer-branch">{project.branch}</span>}</div>
       <div className="explorer-toolbar"><span>资源管理器</span><div><button className="icon-button" aria-label="刷新项目目录" title="刷新项目目录" onClick={() => setRevision(r => r + 1)}><ArrowClockwise size={15} /></button><button className="icon-button" aria-label="折叠所有文件夹" title="折叠所有文件夹" onClick={() => onExpandedChange([''])}><ArrowsInLineVertical size={15} /></button></div></div>
       <div className="file-tree" role="tree" aria-label={`${project.name} 的文件目录`}>
         <TreeNode projectId={project.id} entry={{ name: project.name, path: '', kind: 'directory' }} depth={0} expanded={expanded} revision={revision} enabled={!collapsed} selectedFile={selectedFile} onToggle={toggle} onSelect={onSelectFile} />

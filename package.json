@@ -1,7 +1,7 @@
 {
   "name": "project-grid",
   "productName": "Project Grid",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "多个项目、多个真实终端，Codex 完成后一眼可见。",
   "author": "Project Grid",
   "license": "MIT",
@@ -15,14 +15,16 @@
   "scripts": {
     "start": "node scripts/start.mjs",
     "dev": "node scripts/start.mjs --dev",
-    "build": "tsc --noEmit && vite build",
-    "test": "node --test tests/*.test.cjs",
+    "build": "node scripts/build-ssh-askpass.cjs && tsc --noEmit && vite build",
+    "test": "node scripts/build-ssh-askpass.cjs && node --test tests/*.test.cjs",
     "test:desktop": "node scripts/smoke.mjs",
+    "test:sessions": "node scripts/session-smoke.mjs",
     "dist": "node -e \"require('electron')\" && npm run build && electron-builder --win --x64 --publish never",
     "pack": "node -e \"require('electron')\" && npm run build && electron-builder --win --dir --x64"
   },
   "dependencies": {
     "electron-updater": "6.8.9",
+    "jsonc-parser": "3.3.1",
     "node-pty": "1.2.0-beta.15"
   },
   "devDependencies": {
@@ -38,6 +40,7 @@
     "playwright": "1.63.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "ssh2": "1.17.0",
     "typescript": "^5.9.3",
     "vite": "8.3.0"
   },
@@ -64,7 +67,13 @@
       "node_modules/node-pty/**/*"
     ],
     "npmRebuild": false,
-    "publish": [{ "provider": "github", "owner": "noeigenstate", "repo": "project-manager" }],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "noeigenstate",
+        "repo": "project-manager"
+      }
+    ],
     "nsis": {
       "artifactName": "Project-Grid-Setup-${version}-x64.${ext}",
       "oneClick": false,
@@ -77,7 +86,12 @@
     "win": {
       "icon": "assets/icon.ico",
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
         {
           "target": "portable",
           "arch": [

@@ -1,0 +1,98 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
+const { SSHAuthServer } = require('../electron/ssh-auth.cjs');
+const { RemoteConnection } = require('../electron/remote-connection.cjs');
+const { PreviewResources, resourceResponse } = require('../electron/preview-resources.cjs');
+const { createSSHFixture } = require('./helpers/ssh-fixture.cjs');
+
+const integrationDir = path.resolve(__dirname, '..', 'integration');
+const sshPath = process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/OpenSSH/ssh.exe') : 'ssh';
+const waitFor = async callback => { const started = Date.now(); while (Date.now() - started < 15000) { if (await callback()) return; await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error('Timed out waiting for SSH test'); };
+
+test('native OpenSSH reuses host config, authenticates once and carries terminal plus file requests', { timeout: 30000 }, async t => {
+  const fixture = await createSSHFixture();
+  const auth = await new SSHAuthServer().start();
+  const events = []; let output = '';
+  const project = { id: randomUUID(), kind: 'ssh', path: process.platform === 'win32' ? '/srv/fixture' : fixture.project, ssh: { host: 'fixture', configFile: fixture.configFile } };
+  const connection = new RemoteConnection(project, { integrationDir, auth, sshPath, sessionKey: 'test-session-key', onEvent: event => events.push(event) });
+  connection.onData(data => { output += data; });
+  t.after(async () => { connection.close(); auth.close(); await fixture.close(); });
+  await connection.ready;
+  const listing = await connection.request('directory', { path: '', offset: 0 });
+  assert.equal(listing.path, '');
+  await waitFor(() => events.some(event => event.type === 'shell-prompt'));
+  connection.write('printf "SSH_TRANSPORT_OK\\n"\r');
+  await waitFor(() => output.includes('SSH_TRANSPORT_OK'));
+  connection.resize(110, 34);
+  const imageBytes = await fs.readFile(path.join(__dirname, '..', 'assets/icon.png'));
+  await fs.writeFile(path.join(fixture.project, '图片.png'), imageBytes);
+  const resources = new PreviewResources({ remote: () => connection });
+  const preview = resources.open(project, '图片.png', 'image', 'image/png');
+  const resource = await resources.resolve(preview.url);
+  const response = resourceResponse(resource, new Request(preview.url));
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), imageBytes);
+  const tail = resourceResponse(resource, new Request(preview.url, { headers: { Range: 'bytes=100-' } }));
+  assert.equal(tail.status, 206);
+  assert.deepEqual(Buffer.from(await tail.arrayBuffer()), imageBytes.subarray(100));
+  assert.equal(auth.getPending().length, 0);
+  connection.close();
+  await assert.rejects(connection.request('directory', { path: '' }), /关闭|断开/);
+});
+
+test('native SSH prompts for a first host key and password without writing credentials to project config', { timeout: 30000 }, async t => {
+  const fixture = await createSSHFixture({ password: true, unknownHost: true, nativeWorker: false });
+  const askpassPath = process.platform === 'win32' ? path.join(fixture.directory, 'askpass.exe') : undefined;
+  if (askpassPath) await fs.copyFile(path.join(integrationDir, 'ssh-askpass.exe'), askpassPath);
+  const prompts = [];
+  const auth = await new SSHAuthServer(queue => {
+    const prompt = queue[0];
+    if (!prompt) return;
+    prompts.push(prompt.kind);
+    setImmediate(() => auth.answer(prompt.id, prompt.kind === 'confirm' ? 'yes' : fixture.secret));
+  }).start();
+  const connection = new RemoteConnection({ id: randomUUID(), kind: 'ssh', path: '/srv/fixture', ssh: { host: 'fixture', configFile: fixture.configFile } }, { integrationDir, auth, sshPath, askpassPath, sessionKey: 'test-auth-key' });
+  t.after(async () => { connection.close(); auth.close(); await fixture.close(); });
+  await connection.ready;
+  assert.ok(prompts.includes('confirm'));
+  assert.ok(prompts.includes('secret'));
+  assert.ok(!(await fs.readFile(fixture.configFile, 'utf8')).includes(fixture.secret));
+  assert.ok((await fs.readFile(fixture.knownHosts, 'utf8')).trim().length > 0);
+});
+
+test('untrusted askpass requests are rejected without displaying a credential prompt', async t => {
+  const auth = await new SSHAuthServer().start();
+  t.after(() => auth.close());
+  auth.register('test-project', 'fixture', () => {});
+  const response = await fetch(auth.url, { method: 'POST', headers: { Authorization: 'Bearer wrong', 'Content-Type': 'application/json' }, body: JSON.stringify({ connectionId: 'test-project', prompt: 'password' }) });
+  assert.equal(response.status, 403);
+  assert.equal(auth.getPending().length, 0);
+});
+
+test('Linux remote worker reads real files, enforces boundaries and emits Codex completion', { timeout: 40000, skip: process.platform === 'win32' }, async t => {
+  const fixture = await createSSHFixture({ nativeWorker: true });
+  const auth = await new SSHAuthServer().start();
+  const project = { id: randomUUID(), kind: 'ssh', path: fixture.project, ssh: { host: 'fixture', configFile: fixture.configFile } };
+  const events = []; let output = '';
+  await fs.writeFile(path.join(fixture.project, 'hello.txt'), '中文 remote file');
+  await fs.copyFile(path.join(__dirname, '..', 'assets', 'icon.png'), path.join(fixture.project, 'image.png'));
+  await fs.writeFile(path.join(fixture.project, 'page.html'), '<h1>Remote preview</h1>');
+  const stub = '#!/usr/bin/env python3\nimport json,subprocess,sys\ncommand=json.loads(sys.argv[2][7:])\nsubprocess.run(command+[json.dumps({"type":"agent-turn-complete","thread-id":"test","turn-id":"1"})])\nprint("REMOTE_CODEX_DONE")\n';
+  await fs.writeFile(path.join(fixture.home, 'bin', 'codex'), stub, { mode: 0o755 });
+  const connection = new RemoteConnection(project, { integrationDir, auth, sshPath, sessionKey: 'test-linux-key', onEvent: event => events.push(event) });
+  connection.onData(data => { output += data; });
+  t.after(async () => { connection.close(); auth.close(); await fixture.close(); });
+  await connection.ready;
+  assert.equal((await connection.request('preview', { path: 'hello.txt', page: 0 })).content, '中文 remote file');
+  assert.equal((await connection.request('preview', { path: 'image.png', page: 0 })).kind, 'image');
+  assert.equal((await connection.request('preview', { path: 'page.html', page: 0 })).kind, 'html');
+  assert.equal(Buffer.from(await connection.request('read', { path: 'hello.txt', offset: 0, length: 6 }), 'base64').toString(), '中文');
+  await assert.rejects(connection.request('read', { path: '../outside', offset: 0, length: 10 }));
+  await waitFor(() => events.some(event => event.type === 'shell-prompt' && event.codexAvailable));
+  connection.write('codex\r');
+  await waitFor(() => events.some(event => event.type === 'turn-complete'));
+  await waitFor(() => events.some(event => event.type === 'codex-exited'));
+  assert.ok(output.includes('REMOTE_CODEX_DONE'));
+});

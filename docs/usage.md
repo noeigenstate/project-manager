@@ -8,7 +8,7 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 
 从 [Releases](https://github.com/noeigenstate/project-manager/releases/latest) 下载 Windows `.exe` 即可使用。正式版本在 Releases 中长期保留，普通 CI 构建仍可从 Actions 的 Artifacts 下载。
 
-打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.2.6-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.2.6-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
+打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.2.7-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.2.7-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
 
 ## 自动更新
 
@@ -20,7 +20,7 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 
 ## 日常操作
 
-1. 点击 **添加项目**，选择一个或多个项目目录。
+1. 点击 **添加项目**，选择「本地项目」后选择一个或多个目录；或选择「SSH 远程项目」连接 Linux 主机。
 2. 在每个方框里输入 `codex`，或者点击 **启动 Codex**。已经保存的对话可以用 `codex resume` 选择；若会话仍在其他窗口运行，先在原窗口结束当前会话，再在这里恢复。
 3. Codex **一轮结束**后，方框闪红并显示「等待你查看」。如果开启桌面通知，后台也会提醒。
 4. **点击红框**：自动进入原生全屏并标记本轮已查看。直接在终端里继续输入指令。
@@ -28,6 +28,39 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 6. 当整个项目开发完成，点击左栏底部的 **标记开发完成**。方框变绿、停止闪烁，并返回网格。需要继续时，可以通过项目菜单选择 **继续开发**。
 
 每个方框右上角的菜单还可以在 VS Code 打开目录、在资源管理器打开目录、重启终端或移除项目。移除项目不会删除项目文件。
+
+## SSH 远程项目
+
+1. 在 VS Code Remote-SSH 或 OpenSSH 配置好主机，确保该主机能够正常连接。
+2. 点击「添加项目 → SSH 远程项目」，选择主机别名，也可输入 `user@hostname`。
+3. 输入远程目录，例如 `/home/dev/my-project` 或 `~/my-project`。可选填一个方便识别的名称，也可粘贴 `vscode-remote://ssh-remote+主机/路径` 地址。
+4. 点击「连接并添加」。首次连接确认主机指纹；需要密码或密钥口令时，在认证弹窗中输入。
+
+主机列表沿用 VS Code 的 `remote.SSH.configFile`，未设置时使用 `~/.ssh/config`，并读取 Include 中的主机。连接由 OpenSSH 处理，沿用配置中的 IdentityFile、Port、ProxyJump 等参数。密码仅用于这次认证，不写入项目配置。
+
+远端需要 **Linux、Python 3.6+ 和 Bash**；远端 Bash 中需能找到 `codex`。每个项目通过同一条 SSH 连接传输终端、目录和文件预览，文件按需读取。远端终端会加载 `~/.bashrc`。连接断开后，项目菜单可重新连接；文件目录外的符号链接不会被预览。
+
+点击「在 VS Code 打开」会启动对应的 Remote-SSH 工作区。项目列表、SSH 主机别名和路径保存在本机，项目文件与 Codex 对话留在服务器上。
+
+## 自动恢复 Codex 会话
+
+默认开启「启动时恢复工作」，可在设置中关闭。真正退出并重新打开应用后：
+
+- 恢复上次打开的终端及其工作目录；之前运行 Codex 的项目自动恢复该目录最近的交互会话。
+- 上一轮明确处于中断状态时，执行 `codex resume 会话ID "继续"`；上一轮已完成或状态不明确时，只恢复会话，不提交新指令。
+- 绿色开发完成项目，以及正常退出 shell 的项目保持停止。普通 shell 命令不会被自动重新执行。
+- 从旧版首次升级时，没有终端恢复记录的项目会尝试打开已有对话，不自动发送「继续」。后续启动按新记录恢复。
+- 本地与 SSH 项目均支持恢复；SSH 需要重新认证时会弹出认证窗口。只关闭到托盘时，原任务继续运行，不会重新恢复一遍。
+
+恢复基于各主机 Codex CLI 保存的会话记录。未找到可识别的记录但上次仍在运行 Codex 时，使用 `codex resume --last` 交由 CLI 选择最近会话，不创建新对话。
+
+## 复制与粘贴
+
+- 鼠标拖选终端文字后，按 **Ctrl+C** 或 **Ctrl+Shift+C** 复制。未选中文字时，Ctrl+C 仍然中断命令。
+- **Ctrl+Shift+A** 全选终端文字；右键「复制全部终端文字」包含当前终端缓冲区中的可回滚历史。缓冲区已淘汰的旧输出无法通过此操作找回。
+- **Ctrl+V**、**Ctrl+Shift+V**、**Shift+Insert** 或右键「粘贴」把剪贴板文字送入当前终端，保留终端的多行粘贴处理。
+- 搜索框、SSH 主机、远程目录和密码框支持常规复制粘贴及右键菜单。
+- 某些终端程序启用鼠标控制后，需要按住 Shift 拖选；全选与右键复制全部仍可使用。
 
 ## 项目目录与磨玻璃界面
 
@@ -66,8 +99,8 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 - 网格按项目数量自动排列；空间不足时可以滚动，点击任意项目标题即可全屏。
 - 默认关闭到系统托盘，任务继续运行；点击托盘图标恢复窗口。
 - 真正退出需要从托盘菜单或设置里点击「退出应用」。存在终端时会提示任务将被结束。
-- 重新启动应用会恢复目录、未读记录和绿色完成标记。终端需要手动启动，不会自动重新执行命令。
-- 数据保存在 `%APPDATA%/Project Grid/workspace.json`，只记录项目路径和状态，不保存终端文字或对话内容。
+- 重新启动应用会恢复目录、未读记录、绿色完成标记，以及按设置恢复上次的终端和 Codex 会话。
+- 数据保存在 `%APPDATA%/Project Grid/workspace.json`，记录项目路径、SSH 主机和恢复状态，不保存密码、终端文字或对话内容。
 - 终端回看缓冲区在内存中，每个终端最多约 1 MiB，退出应用后释放。
 - 窗口遵循系统减少动态效果偏好，启用时保留红色状态而停止闪烁。
 
@@ -77,7 +110,7 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 - Codex CLI 已安装并在 PATH 中。已在本机 Codex CLI 0.154.0 上进行启动检查。
 - 支持标准 npm 安装和原生 `codex.exe`。
 - 本应用为所选目录创建独立终端。VS Code 中已经运行的终端不会被直接搬入这个窗口。
-- 完成检测适用于本应用终端中的 `codex` 函数启动的任务，包括 `codex resume`。直接运行绝对路径的 `codex.exe`、自定义别名、WSL/SSH 里的 Codex 不会自动接入。
+- 完成检测适用于本应用本地终端或 SSH 项目 Bash 中的 `codex` 函数，包括 `codex resume`。直接运行绝对路径可执行文件、自定义别名或在终端里另行嵌套 SSH/WSL 不会自动接入。
 - 首版使用 Codex 的 `notify` 参数，覆盖当前这一条 Codex 命令的通知程序；**不改写全局 Codex 配置**。已有自定义 `notify` 程序不会同时执行。用户手动传入 `-c notify=...` 会覆盖本应用的检测。
 - 普通命令结束、终端退出、长时间无输出、回复里出现「完成」等情况都不会产生红框。
 - 本版提供项目网格、完整终端、文件目录、图片查看、视频播放、HTML 页面渲染和大文本源码预览；编辑文件可通过「在 VS Code 打开」使用。
@@ -95,6 +128,7 @@ npm start
 npm run build
 npm test
 npm run test:desktop
+npm run test:sessions
 npm run dist
 ```
 
@@ -102,6 +136,7 @@ npm run dist
 - `test`：状态持久化、事件传输、终端环境、目录与大文本分页、Unicode 边界、图片识别、视频字节范围、链接解析及预览访问边界测试。
 - `test:desktop`：真实终端和按钮交互、通知、目录、PNG 显示/缩放/刷新、HTML/CSS/脚本加载与隔离、视频播放/暂停/跳转/全屏、大文本翻页、Ctrl 单击普通与 OSC 8 链接，以及窄窗口检查。不会向模型提交编码任务，不会修改日常工作区设置。截图在 `.test-output/desktop-*/`。添加 `-- --packaged` 可检查打包后的应用。
 - `dist`：生成 Windows x64 NSIS 安装程序、便携版、`latest.yml`、`.blockmap` 和 `win-unpacked`。
+- `test:sessions`：用离线 Codex 替身验证两次启动恢复；检查输入框粘贴、终端复制/粘贴、SSH 认证弹窗和远程媒体预览。SSH 服务只监听本机随机端口，不连接日常远程主机。添加 `-- --packaged` 可检查打包版。
 - `node scripts/verify-update-artifacts.cjs`：校验安装包、SHA-512、更新清单和应用内置更新源。
 
 终端依赖锁定为 `node-pty@1.2.0-beta.15`，使用其随包提供的 ConPTY 1.25，修复旧版在窗口缩放后光标坐标不同步的问题。相关上游说明见 [microsoft/terminal#18725](https://github.com/microsoft/terminal/issues/18725)。渲染端同步启用光标所在行的重排，并在预览期间保持终端布局。
@@ -112,10 +147,11 @@ npm run dist
 
 - 推送到 `main`、推送 `v*` 标签、提交面向 `main` 的 PR，或在 Actions 页面点击 **Run workflow** 都会触发。
 - 流程：`npm ci` → 单元测试 → 生成 Windows 安装版与便携版 → 校验自动更新文件 → 打包版桌面测试 → 上传可执行文件和 SHA-256 校验信息。
+- 独立的 Ubuntu job 使用真实 OpenSSH 连接测试服务，运行 Linux Python worker、Bash PTY、文件读取与 Codex 通知测试；发布前必须同时通过 Windows 和 Linux 检查。
 - 桌面回归测试会实际点击「启动终端」，覆盖网格和全屏，确认按键不被遮挡，再检查真实 PowerShell 与 Codex CLI 启动。
 - Codex 检查只运行版本和配置命令，不调用模型，不需要 API 密钥或 ChatGPT 登录。
 - 构建通过后，在对应运行的 **Artifacts** 中下载 **Project-Grid-windows-x64**，解压后双击 `.exe`。产物保留 30 天；测试截图保留 7 天。
-- 推送与 `package.json` 一致的版本标签（如 `v0.2.6`）时，构建与测试通过后会自动创建 GitHub Release，附上两个 `.exe`、`latest.yml`、`.blockmap`、SHA-256 校验文件和构建信息；普通 `main` 推送只生成 Artifacts。
+- 推送与 `package.json` 一致的版本标签（如 `v0.2.7`）时，构建与测试通过后会自动创建 GitHub Release，附上两个 `.exe`、`latest.yml`、`.blockmap`、SHA-256 校验文件和构建信息；普通 `main` 推送只生成 Artifacts。
 - 发布任务会重新校验下载产物，只为发布阶段申请仓库写权限。已发布的版本不会被重跑任务覆盖；预发布版本会标为 prerelease。
 - GitHub Packages 面向 npm、NuGet、容器等软件包；本项目以 Windows 可执行文件交付，下载入口是 Releases。
 

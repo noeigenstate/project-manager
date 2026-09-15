@@ -51,6 +51,8 @@ function global:Send-ProjectGridEvent {
             sequence = $global:ProjectGridEventSequence
             exitCode = $ExitCode
             codexAvailable = [bool]$global:ProjectGridCodexCommand
+            codexHome = $(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.codex' })
+            cwd = (Get-Location).Path
         } | ConvertTo-Json -Compress
         $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', $global:ProjectGridSession.pipeName, [System.IO.Pipes.PipeDirection]::Out)
         try {

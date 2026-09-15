@@ -39,7 +39,7 @@ function allowsHiddenPath(session, relativePath) {
 }
 
 class PreviewResources {
-  constructor() { this.sessions = new Map(); }
+  constructor({ remote } = {}) { this.sessions = new Map(); this.remote = remote; }
 
   open(project, filePath, kind, mimeType) {
     const previewId = randomBytes(24).toString('hex');
@@ -62,12 +62,22 @@ class PreviewResources {
     if (session.kind !== 'html' && relativePath !== session.filePath.replace(/\\/g, '/')) throw new Error('Media preview is limited to the selected file');
     const mimeType = session.kind !== 'html' && session.mimeType ? session.mimeType : WEB_TYPES[path.extname(relativePath).toLowerCase()];
     if (!mimeType) throw new Error('Unsupported preview resource');
-    const resolved = await resolveProjectPath(session.project, relativePath);
-    const relativeReal = path.relative(await fs.realpath(session.project.path), resolved);
-    if (!allowsHiddenPath(session, relativeReal.split(path.sep).join('/'))) throw new Error('Hidden link targets are not preview resources');
-    const stat = await fs.stat(resolved);
-    if (!stat.isFile()) throw new Error('Preview resource is not a supported file');
-    return { path: resolved, mimeType, size: stat.size, headers: {
+    let resolved, size, readChunk;
+    if (session.project.kind === 'ssh') {
+      const connection = this.remote(session.project);
+      const stat = await connection.request('stat', { path: relativePath });
+      if (!stat.file || !allowsHiddenPath(session, stat.realPath)) throw new Error('Unsupported remote resource');
+      resolved = relativePath; size = stat.size;
+      readChunk = async (offset, length) => Buffer.from(await connection.request('read', { path: relativePath, offset, length }), 'base64');
+    } else {
+      resolved = await resolveProjectPath(session.project, relativePath);
+      const relativeReal = path.relative(await fs.realpath(session.project.path), resolved);
+      if (!allowsHiddenPath(session, relativeReal.split(path.sep).join('/'))) throw new Error('Hidden link targets are not preview resources');
+      const stat = await fs.stat(resolved);
+      if (!stat.isFile()) throw new Error('Preview resource is not a supported file');
+      size = stat.size;
+    }
+    return { path: resolved, mimeType, size, readChunk, headers: {
       'Content-Type': mimeType,
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
@@ -100,7 +110,24 @@ function resourceResponse(resource, request) {
       headers['Content-Length'] = String(end - start + 1);
     }
   }
-  const body = request.method === 'HEAD' || resource.size === 0 ? null : Readable.toWeb(createReadStream(resource.path, { start, end, highWaterMark: 64 * 1024 }));
+  let body = null;
+  if (request.method !== 'HEAD' && resource.size > 0) {
+    if (resource.readChunk) {
+      let offset = start, canceled = false;
+      body = new ReadableStream({
+        async pull(controller) {
+          if (canceled) return;
+          if (offset > end) { controller.close(); return; }
+          try {
+            const bytes = await resource.readChunk(offset, Math.min(256 * 1024, end - offset + 1));
+            if (canceled) return;
+            if (!bytes.length) throw new Error('远程文件已变化，请刷新预览。');
+            offset += bytes.length; controller.enqueue(bytes);
+          } catch (error) { if (!canceled) controller.error(error); }
+        }, cancel() { canceled = true; },
+      });
+    } else body = Readable.toWeb(createReadStream(resource.path, { start, end, highWaterMark: 64 * 1024 }));
+  }
   return new Response(body, { status, headers });
 }
 

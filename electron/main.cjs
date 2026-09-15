@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, Notificati
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn, execFile } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const { randomUUID } = require('node:crypto');
 const pty = require('node-pty');
@@ -13,6 +14,10 @@ const { createTerminalEnvironment } = require('./terminal-env.cjs');
 const { PreviewResources, resourceResponse } = require('./preview-resources.cjs');
 const { resolveTerminalLink } = require('./terminal-links.cjs');
 const { UpdateManager, isInstalledBuild } = require('./updates.cjs');
+const { getSSHInfo } = require('./ssh-config.cjs');
+const { SSHAuthServer } = require('./ssh-auth.cjs');
+const { RemoteConnection } = require('./remote-connection.cjs');
+const { recentSession, resumeCommand } = require('./session-restore.cjs');
 
 const root = path.join(__dirname, '..');
 const integrationDir = app.isPackaged ? path.join(process.resourcesPath, 'integration') : path.join(root, 'integration');
@@ -25,13 +30,17 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'project-preview', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
 
-let window, tray, store, eventServer, updateManager, quitting = false, installingUpdate = false;
+let window, tray, store, eventServer, sshAuth, updateManager, quitting = false, installingUpdate = false;
 const sessions = new Map();
 const branches = new Map();
 const startupErrors = new Map();
-const previewResources = new PreviewResources();
+const restorePlans = new Map();
+const previewResources = new PreviewResources({ remote: project => remoteFor(project.id) });
 let stateTimer;
 let runtimeDir;
+let sshAskpassPath;
+let sshAskpassDir;
+let activeTerminal = null;
 const powershellPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 
 function send(channel, data) { if (window && !window.isDestroyed()) window.webContents.send(channel, data); }
@@ -47,6 +56,7 @@ function publicState() {
       const s = sessions.get(p.id);
       return {
         id: p.id, name: p.name, path: p.path, unread: p.unread, done: p.done, lastCompletedAt: p.lastCompletedAt,
+        kind: p.kind || 'local', ssh: p.ssh || null,
         branch: branches.get(p.id) || '',
         sessionId: s?.sessionId || null,
         status: s ? s.status : 'stopped',
@@ -117,25 +127,56 @@ function onEvent(event) {
     s.inputDirty = false;
     s.status = 'shell';
     s.codexAvailable = event.codexAvailable === true;
+    if (typeof event.codexHome === 'string') s.codexHome = event.codexHome;
+    if (!quitting && typeof event.cwd === 'string') store.setRestore(project.id, { cwd: event.cwd });
   } else if (event.type === 'codex-started') {
     s.ready = false;
     s.codexActive = true;
     s.status = 'codex';
     s.error = null;
+    store.setRestore(project.id, { terminal: true, codex: true, cwd: event.cwd });
     // Unread completion is independent of session activity. It survives new turns.
   } else if (event.type === 'codex-exited') {
     s.ready = false;
     s.codexActive = false;
     s.status = 'shell';
+    if (!quitting) store.setRestore(project.id, { codex: false });
     const code = Number(event.exitCode);
     if (code && code !== 130 && code !== -1073741510) s.error = `Codex 已退出（代码 ${code}），请查看终端输出。`;
   } else if (event.type === 'turn-complete') {
     if (store.complete(project.id, event.eventId)) notifyCompletion(project);
   } else return;
   broadcast();
+  if (event.type === 'shell-prompt') void resumeAfterPrompt(project, s);
+}
+
+async function resumeAfterPrompt(project, session) {
+  const plan = restorePlans.get(project.id);
+  if (!plan || !session.ready || session.inputDirty) return;
+  restorePlans.delete(project.id);
+  if (!session.codexAvailable) return;
+  try {
+    const info = project.kind === 'ssh' ? await session.terminal.request('resume-info') : await recentSession(project.restore?.cwd || project.path, session.codexHome);
+    // Legacy versions did not record which process owned a conversation. Open
+    // that history, but do not submit work to a possibly still-running session.
+    const command = resumeCommand(info && !plan.codex ? { ...info, state: 'unknown' } : info, plan.codex);
+    if (command && sessions.get(project.id) === session && session.ready && !session.inputDirty && !session.codexActive) {
+      session.ready = false;
+      session.terminal.write(command);
+      broadcast();
+    }
+  } catch (error) { session.error = `恢复会话失败：${error.message}`; broadcast(); }
+}
+
+function remoteFor(id) {
+  const project = findProject(id);
+  const session = sessions.get(id);
+  if (project.kind !== 'ssh' || !session || session.terminal.closed) throw new Error('请先启动终端，连接 SSH 服务器。');
+  return session.terminal;
 }
 
 function captureBranch(project) {
+  if (project.kind === 'ssh') return;
   execFile('git', ['-C', project.path, 'branch', '--show-current'], { windowsHide: true, timeout: 3000 }, (error, stdout) => {
     if (!error && store.projects.some(p => p.id === project.id)) { branches.set(project.id, stdout.trim()); broadcast(); }
   });
@@ -145,18 +186,32 @@ function startTerminal(id) {
   const project = findProject(id);
   const old = sessions.get(id);
   if (old && old.status !== 'exited') return;
+  if (old) disposeTerminal(id);
   if (process.platform !== 'win32') throw new Error('此版本的终端集成面向 Windows 10/11。');
-  if (!fs.existsSync(project.path)) throw new Error('项目目录不存在，请重新添加。');
+  if (project.kind !== 'ssh' && !fs.existsSync(project.path)) throw new Error('项目目录不存在，请重新添加。');
   const sessionId = randomUUID();
   const sessionKey = randomUUID();
-  const bootstrapFile = path.join(runtimeDir, `${sessionId}.json`);
-  fs.writeFileSync(bootstrapFile, JSON.stringify({
-    projectId: id, projectPath: project.path, sessionKey, pipeName: eventServer.name,
+  const startPath = restorePlans.get(id)?.cwd || project.path;
+  const bootstrapFile = project.kind === 'ssh' ? null : path.join(runtimeDir, `${sessionId}.json`);
+  if (bootstrapFile) fs.writeFileSync(bootstrapFile, JSON.stringify({
+    projectId: id, projectPath: startPath, sessionKey, pipeName: eventServer.name,
     powershellPath, notifyPath: path.join(integrationDir, 'notify.ps1'),
   }), { mode: 0o600 });
-  const env = createTerminalEnvironment(process.env, bootstrapFile);
-  const terminal = pty.spawn(powershellPath, ['-NoLogo', '-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', path.join(integrationDir, 'bootstrap.ps1')], {
-    name: 'xterm-256color', cols: 90, rows: 22, cwd: project.path, env, useConpty: true, useConptyDll: true,
+  const env = createTerminalEnvironment(process.env, bootstrapFile || '');
+  if (project.kind === 'ssh' && !sshAskpassPath) {
+    // Windows OpenSSH 8.1 cannot spawn an askpass executable under a Unicode
+    // directory. The system temp volume provides an ASCII/short-path location
+    // even when the workspace volume has 8.3 names disabled.
+    sshAskpassDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'project-grid-ssh-'));
+    const helper = path.join(sshAskpassDir, 'ssh-askpass.exe');
+    fs.copyFileSync(path.join(integrationDir, 'ssh-askpass.exe'), helper);
+    try { sshAskpassPath = execFileSync(helper, ['--short-path', helper], { encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim(); }
+    catch { sshAskpassPath = helper; }
+  }
+  const terminal = project.kind === 'ssh' ? new RemoteConnection(project, { integrationDir, auth: sshAuth, sessionKey, onEvent, codingPath: startPath, askpassPath: sshAskpassPath,
+    onReady: info => { branches.set(id, String(info.branch || '').slice(0, 120)); broadcast(); },
+  }) : pty.spawn(powershellPath, ['-NoLogo', '-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', path.join(integrationDir, 'bootstrap.ps1')], {
+    name: 'xterm-256color', cols: 90, rows: 22, cwd: startPath, env, useConpty: true, useConptyDll: true,
   });
   const s = {
     terminal, sessionId, sessionKey, bootstrapFile, status: 'starting', ready: false,
@@ -164,6 +219,7 @@ function startTerminal(id) {
     flushTimer: null, lastActivityAt: Date.now(), error: null,
   };
   sessions.set(id, s);
+  store.setRestore(id, { terminal: true, ...(restorePlans.has(id) ? {} : { codex: false }) });
   startupErrors.delete(id);
   const flush = () => {
     clearTimeout(s.flushTimer); s.flushTimer = null;
@@ -185,8 +241,10 @@ function startTerminal(id) {
     if (sessions.get(id) !== s) return;
     flush();
     s.status = 'exited'; s.ready = false; s.codexActive = false;
-    if (exitCode) s.error = `终端已退出（代码 ${exitCode}）。`;
-    fs.rmSync(bootstrapFile, { force: true });
+    restorePlans.delete(id);
+    if (exitCode) s.error = terminal.error || `终端已退出（代码 ${exitCode}）。`;
+    if (!quitting && !exitCode) store.setRestore(id, { terminal: false, codex: false });
+    if (bootstrapFile) fs.rmSync(bootstrapFile, { force: true });
     broadcast();
   });
   captureBranch(project);
@@ -199,7 +257,7 @@ function disposeTerminal(id) {
   sessions.delete(id);
   clearTimeout(s.flushTimer);
   try { s.terminal.kill(); } catch { }
-  fs.rmSync(s.bootstrapFile, { force: true });
+  if (s.bootstrapFile) fs.rmSync(s.bootstrapFile, { force: true });
 }
 
 function checkSender(event) {
@@ -246,6 +304,17 @@ async function requestQuit() {
 }
 
 function registerIpc() {
+  handle('ssh:info', () => getSSHInfo());
+  handle('ssh:auth-pending', () => sshAuth.getPending());
+  handle('ssh:auth-answer', (id, answer) => sshAuth.answer(id, answer));
+  handle('workspace:add-ssh', input => {
+    const configuration = getSSHInfo();
+    const { project, added } = store.addSSH({ ...input, configFile: configuration.configExists ? configuration.configFile : null });
+    if (added || !sessions.has(project.id) || sessions.get(project.id).status === 'exited') {
+      try { startTerminal(project.id); } catch (error) { startupErrors.set(project.id, error.message); }
+    }
+    broadcast(); return project.id;
+  });
   handle('updates:state', () => updateManager.getState());
   handle('updates:check', () => updateManager.check());
   handle('updates:download-page', () => shell.openExternal('https://github.com/noeigenstate/project-manager/releases/latest'));
@@ -286,7 +355,7 @@ function registerIpc() {
   });
   handle('workspace:remove', async id => {
     if (!await confirmTerminalClose(id, '移除')) return false;
-    disposeTerminal(id); previewResources.closeProject(id); store.remove(id); branches.delete(id); startupErrors.delete(id); broadcast(); return true;
+    restorePlans.delete(id); disposeTerminal(id); previewResources.closeProject(id); store.remove(id); branches.delete(id); startupErrors.delete(id); broadcast(); return true;
   });
   handle('workspace:acknowledge', id => { findProject(id); store.acknowledge(id); broadcast(); });
   handle('workspace:done', (id, done) => { findProject(id); store.markDone(id, done); broadcast(); });
@@ -294,41 +363,68 @@ function registerIpc() {
   handle('workspace:settings', patch => {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('无效的设置。');
     store.updateSettings(patch); broadcast();
+    if (patch.restoreSessions === false) restorePlans.clear();
   });
-  handle('project:directory', (id, relativePath, offset) => listDirectory(findProject(id), relativePath, offset));
+  handle('project:directory', (id, relativePath = '', offset = 0) => findProject(id).kind === 'ssh' ? remoteFor(id).request('directory', { path: relativePath, offset }) : listDirectory(findProject(id), relativePath, offset));
   handle('project:file', async (id, relativePath, pageIndex) => {
     const project = findProject(id);
-    const preview = await readProjectFile(project, relativePath, pageIndex);
+    const preview = project.kind === 'ssh' ? await remoteFor(id).request('preview', { path: relativePath, page: pageIndex || 0 }) : await readProjectFile(project, relativePath, pageIndex);
     if (['image', 'html', 'video'].includes(preview.kind)) return { ...preview, ...previewResources.open(project, relativePath, preview.kind, preview.mimeType) };
     return preview;
   });
   handle('project:preview-close', id => previewResources.close(id));
   handle('project:open-link', async (id, target) => {
+    const project = findProject(id);
+    if (project.kind === 'ssh' && !/^(https?:\/\/|www\.)/i.test(target)) {
+      const remote = remoteFor(id); await remote.ready;
+      let value = String(target);
+      if (/^file:\/\//i.test(value)) value = decodeURIComponent(new URL(value).pathname);
+      else if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/:[0-9]+(?::[0-9]+)?$/.test(value)) throw new Error('只支持网页链接和远程项目内文件。');
+      for (const candidate of new Set([value, value.replace(/(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)$/, '')])) {
+        const relative = path.posix.relative(remote.info.root, path.posix.resolve(remote.info.root, candidate));
+        if (relative === '..' || relative.startsWith('../')) throw new Error('该链接指向远程项目目录之外。');
+        try {
+          const stat = await remote.request('stat', { path: relative });
+          if (stat.directory) { await openInCode(id, relative); return { kind: 'external' }; }
+          return { kind: 'file', path: relative };
+        } catch (error) { if (candidate === value.replace(/(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)$/, '')) throw error; }
+      }
+    }
     const link = await resolveTerminalLink(findProject(id), target);
     if (link.kind === 'external') { await shell.openExternal(link.url); return { kind: 'external' }; }
     if (link.kind === 'directory') { const error = await shell.openPath(link.path); if (error) throw new Error(error); return { kind: 'external' }; }
     return link;
   });
   handle('project:open-video', async (id, relativePath) => {
+    if (findProject(id).kind === 'ssh') throw new Error('远程视频请使用内置播放器，或先下载到本机再用系统播放器打开。');
     const resolved = await resolveProjectPath(findProject(id), relativePath);
     if (!VIDEO_TYPES[path.extname(resolved).toLowerCase()] || !(await fs.promises.stat(resolved)).isFile()) throw new Error('请选择一个视频文件。');
     const error = await shell.openPath(resolved); if (error) throw new Error(error);
   });
-  handle('project:reveal', async id => { const error = await shell.openPath(findProject(id).path); if (error) throw new Error(error); });
-  handle('project:code', async (id, relativePath) => {
+  handle('project:reveal', async id => { if (findProject(id).kind === 'ssh') return openInCode(id); const error = await shell.openPath(findProject(id).path); if (error) throw new Error(error); });
+  const openInCode = async (id, relativePath) => {
     const project = findProject(id);
-    const target = relativePath ? await resolveProjectPath(project, relativePath) : project.path;
+    let target;
+    if (project.kind === 'ssh') {
+      const remoteRoot = sessions.get(id)?.terminal.info?.root || project.path;
+      if (!remoteRoot.startsWith('/')) throw new Error('请先连接 SSH，解析远程主目录。');
+      target = path.posix.resolve(remoteRoot, relativePath || '.');
+      const relative = path.posix.relative(remoteRoot, target);
+      if (relative === '..' || relative.startsWith('../')) throw new Error('文件不在项目目录内。');
+    } else target = relativePath ? await resolveProjectPath(project, relativePath) : project.path;
     const found = await new Promise(resolve => execFile('where.exe', ['code'], { windowsHide: true, timeout: 3000 }, (err, output) => resolve(err ? [] : output.trim().split(/\r?\n/))));
     const candidates = found.map(filename => path.join(path.dirname(path.dirname(filename)), 'Code.exe'));
     candidates.push(path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Microsoft VS Code', 'Code.exe'));
     const executable = candidates.find(p => fs.existsSync(p));
     if (!executable) throw new Error('没有找到 VS Code。请将 VS Code 的 code 命令加入 PATH。');
-    const child = spawn(executable, [target], { detached: true, stdio: 'ignore', windowsHide: false });
+    const child = spawn(executable, project.kind === 'ssh' ? ['--remote', `ssh-remote+${project.ssh.host}`, target] : [target], { detached: true, stdio: 'ignore', windowsHide: false });
     child.on('error', report); child.unref();
-  });
+  };
+  handle('project:code', openInCode);
   handle('terminal:start', startTerminal);
   handle('terminal:restart', async id => {
     if (!await confirmTerminalClose(id, '重启')) return false;
+    restorePlans.delete(id);
     disposeTerminal(id); startTerminal(id); return true;
   });
   handle('terminal:attach', id => {
@@ -362,7 +458,9 @@ function registerIpc() {
     const s = sessions.get(id);
     if (s && s.status !== 'exited') s.terminal.resize(cols, rows);
   });
-  handle('clipboard:copy', text => { if (typeof text === 'string' && text.length <= 1024 * 1024) clipboard.writeText(text); });
+  handle('clipboard:copy', text => { if (typeof text !== 'string') throw new Error('无效的剪贴板内容。'); return clipboard.writeText(text); });
+  handle('clipboard:read', () => clipboard.readText());
+  listen('terminal:focus', (id, focused) => { if (sessions.has(id) && focused) activeTerminal = id; else if (activeTerminal === id) activeTerminal = null; });
   listen('window:minimize', () => window.minimize());
   listen('window:maximize', () => window.isMaximized() ? window.unmaximize() : window.maximize());
   listen('window:close', () => window.close());
@@ -378,6 +476,7 @@ else {
     store = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace.json'));
     runtimeDir = fs.mkdtempSync(path.join(app.getPath('userData'), 'runtime-'));
     eventServer = await createEventServer(onEvent);
+    sshAuth = await new SSHAuthServer(queue => send('ssh:auth-changed', queue)).start();
     updateManager = new UpdateManager({
       updater: isInstalledBuild(app.isPackaged, process.execPath) ? require('electron-updater').autoUpdater : null,
       version: app.getVersion(), onChange: state => {
@@ -408,6 +507,24 @@ else {
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, nodeIntegrationInSubFrames: false, contextIsolation: true, sandbox: true, spellcheck: false },
     });
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    window.webContents.on('context-menu', (_event, params) => {
+      if (activeTerminal || (!params.isEditable && !params.selectionText)) return;
+      const items = params.isEditable ? [
+        { label: '撤销', role: 'undo' }, { label: '重做', role: 'redo' }, { type: 'separator' },
+        { label: '剪切', role: 'cut' }, { label: '复制', role: 'copy' }, { label: '粘贴', role: 'paste' }, { type: 'separator' }, { label: '全选', role: 'selectAll' },
+      ] : [{ label: '复制', role: 'copy' }];
+      Menu.buildFromTemplate(items).popup({ window });
+    });
+    // A frameless window has no Edit menu accelerators. Explicitly retain
+    // standard editing shortcuts for inputs, including SSH password fields.
+    window.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || activeTerminal || input.alt) return;
+      const key = input.key.toLowerCase();
+      let action;
+      if (input.control || input.meta) action = { c: 'copy', x: 'cut', v: input.shift ? 'pasteAndMatchStyle' : 'paste', a: 'selectAll', z: input.shift ? 'redo' : 'undo', y: 'redo', insert: 'copy' }[key];
+      else if (input.shift && key === 'insert') action = 'paste';
+      if (action) { event.preventDefault(); window.webContents[action](); }
+    });
     window.webContents.on('will-navigate', event => event.preventDefault());
     window.webContents.on('will-frame-navigate', event => {
       if (!event.isMainFrame && event.url !== 'about:blank' && !previewResources.hasUrl(event.url)) event.preventDefault();
@@ -438,6 +555,17 @@ else {
     await window.loadURL(devUrl || 'project-grid://app/index.html');
     updateIndicators();
     if (!process.env.PROJECT_GRID_DATA_DIR) updateManager.start();
+    if (store.settings.restoreSessions && (!process.env.PROJECT_GRID_DATA_DIR || process.env.PROJECT_GRID_TEST_RESTORE === '1')) {
+      const projects = store.projects.filter(project => !project.done && (project.restore === null || project.restore.terminal));
+      projects.forEach((project, index) => {
+        if (project.restore === null || project.restore.codex) restorePlans.set(project.id, { codex: project.restore?.codex === true, cwd: project.restore?.cwd });
+        const timer = setTimeout(() => {
+          if (quitting || !store.settings.restoreSessions || !store.projects.some(item => item.id === project.id)) return;
+          try { startTerminal(project.id); } catch (error) { restorePlans.delete(project.id); startupErrors.set(project.id, error.message); broadcast(); }
+        }, index * 300);
+        timer.unref?.();
+      });
+    }
   }).catch(error => {
     dialog.showErrorBox('Project Grid 无法启动', String(error?.stack || error));
     app.exit(1);
@@ -448,8 +576,12 @@ app.on('before-quit', () => {
   updateManager?.dispose();
   clearTimeout(stateTimer);
   for (const id of sessions.keys()) disposeTerminal(id);
+  sshAuth?.close();
   eventServer?.close();
   tray?.destroy();
+  if (sshAskpassDir) {
+    try { fs.rmSync(path.join(sshAskpassDir, 'ssh-askpass.exe'), { force: true }); fs.rmdirSync(sshAskpassDir); } catch { }
+  }
   if (runtimeDir) {
     // Only this launch's generated, now-empty runtime directory is removed.
     try { fs.rmdirSync(runtimeDir); } catch { }

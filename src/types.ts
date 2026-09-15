@@ -1,11 +1,14 @@
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 export type Project = {
   id: string; name: string; path: string; branch: string; unread: number; done: boolean;
+  kind: 'local' | 'ssh'; ssh: { host: string; configFile: string | null } | null;
   lastCompletedAt: number | null; lastActivityAt: number | null;
   sessionId: string | null; status: 'stopped' | 'starting' | 'shell' | 'codex' | 'exited';
   codexActive: boolean; shellReady: boolean; codexAvailable: boolean | null; error: string | null;
 };
-export type Settings = { columns: number; notifications: boolean; sound: boolean; closeToTray: boolean; explorerCollapsed: boolean; fontSize: number };
+export type Settings = { columns: number; notifications: boolean; sound: boolean; closeToTray: boolean; explorerCollapsed: boolean; fontSize: number; restoreSessions: boolean };
+export type SSHInfo = { hosts: string[]; configFile: string; configExists: boolean; sshPath: string; source: string };
+export type SSHAuthPrompt = { id: string; host: string; message: string; kind: 'secret' | 'confirm' };
 export type Workspace = { projects: Project[]; settings: Settings; warning: string | null; platform: string; version: string };
 export type TerminalSnapshot = { sessionId: string | null; seq: number; data: string };
 export type TerminalPacket = TerminalSnapshot & { id: string };
@@ -26,6 +29,11 @@ export type Bridge = {
   openDownloadPage(): Promise<Result<void>>;
   onUpdateState(callback: (state: AppUpdateState) => void): () => void;
   addProjects(): Promise<Result<string[]>>;
+  addSSHProject(input: { host: string; path: string; name?: string }): Promise<Result<string>>;
+  getSSHInfo(): Promise<Result<SSHInfo>>;
+  getSSHAuth(): Promise<Result<SSHAuthPrompt[]>>;
+  answerSSHAuth(id: string, answer: string | null): Promise<Result<void>>;
+  onSSHAuth(callback: (prompts: SSHAuthPrompt[]) => void): () => void;
   removeProject(id: string): Promise<Result<boolean>>;
   acknowledge(id: string): Promise<Result<void>>;
   markDone(id: string, done: boolean): Promise<Result<void>>;
@@ -45,6 +53,8 @@ export type Bridge = {
   writeTerminal(id: string, data: string): void;
   resizeTerminal(id: string, cols: number, rows: number): void;
   copy(text: string): Promise<Result<void>>;
+  readClipboard(): Promise<Result<string>>;
+  terminalFocus(id: string, focused: boolean): void;
   onState(callback: (state: Workspace) => void): () => void;
   onTerminalData(callback: (packet: TerminalPacket) => void): () => void;
   onFocusProject(callback: (id: string) => void): () => void;

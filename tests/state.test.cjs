@@ -83,5 +83,28 @@ test('corrupt workspace is copied aside before a new workspace can be saved', t 
 });
 
 test('settings reject invalid layout and font values', () => {
-  assert.deepEqual(cleanSettings({ columns: 999, fontSize: -2, notifications: 'yes', sound: false }), { columns: 0, fontSize: 12, notifications: true, sound: false, closeToTray: true, explorerCollapsed: false });
+  assert.deepEqual(cleanSettings({ columns: 999, fontSize: -2, notifications: 'yes', sound: false }), { columns: 0, fontSize: 12, notifications: true, sound: false, closeToTray: true, explorerCollapsed: false, restoreSessions: true });
+});
+
+test('SSH projects retain their host, remote path and recovery state without becoming local folders', t => {
+  const { store, file } = fixture(t);
+  const { project } = store.addSSH({ host: 'linux-dev', path: '~/apps/demo', name: '远程项目' });
+  store.setRestore(project.id, { terminal: true, codex: true, cwd: '/home/dev/apps/demo/subdir' });
+  const restored = new WorkspaceStore(file).projects.find(item => item.id === project.id);
+  assert.equal(restored.kind, 'ssh');
+  assert.equal(restored.path, '~/apps/demo');
+  assert.equal(restored.ssh.host, 'linux-dev');
+  assert.deepEqual(restored.restore, { terminal: true, codex: true, cwd: '/home/dev/apps/demo/subdir' });
+  assert.equal(store.addSSH({ host: 'linux-dev', path: '~/apps/demo' }).added, false);
+  assert.equal(store.addSSH({ host: 'other-host', path: '~/apps/demo' }).added, true);
+});
+
+test('older workspace records migrate without losing completion markers or guessing a terminal state', t => {
+  const { file, projectDir } = fixture(t);
+  fs.writeFileSync(file, JSON.stringify({ version: 1, projects: [{ id: 'legacy', name: '旧项目', path: projectDir, done: true, unread: 0 }], settings: {} }));
+  const store = new WorkspaceStore(file);
+  assert.equal(store.projects[0].kind, 'local');
+  assert.equal(store.projects[0].restore, null);
+  assert.equal(store.projects[0].done, true);
+  assert.equal(store.settings.restoreSessions, true);
 });

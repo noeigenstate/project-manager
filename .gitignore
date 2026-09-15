@@ -6,3 +6,5 @@ release/
 docs/overview.png
 docs/project-view.png
 test-results/
+integration/ssh-askpass.exe
+__pycache__/

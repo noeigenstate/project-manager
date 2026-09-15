@@ -16,6 +16,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  remote-linux:
+    name: Linux SSH integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install test dependencies without desktop native builds
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Test remote files and recovery state
+        run: python3 -m unittest discover -s tests -p 'remote_worker_test.py' -v
+      - name: Test real SSH and Linux PTY integration
+        run: |
+          node scripts/build-ssh-askpass.cjs
+          node --test tests/ssh-config.test.cjs tests/ssh-connection.test.cjs tests/session-restore.test.cjs
   windows:
     name: Windows x64 build and desktop tests
     runs-on: windows-latest
@@ -73,6 +93,9 @@ jobs:
       - name: Verify desktop with actual terminal button clicks
         run: npm run test:desktop -- --packaged
 
+      - name: Verify session recovery, clipboard and SSH desktop interaction
+        run: npm run test:sessions -- --packaged
+
       - name: Create checksum and build notes
         run: |
           $version = '${{ steps.version.outputs.version }}'
@@ -123,7 +146,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-test-screenshots
-          path: .test-output/desktop-*/*.png
+          path: |
+            .test-output/desktop-*/*.png
+            .test-output/sessions-*/*.png
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
@@ -131,7 +156,7 @@ jobs:
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: windows
+    needs: [windows, remote-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -167,14 +192,17 @@ jobs:
 
           **Recommended:** install **$RELEASE_INSTALLER** to enable automatic update checks and background downloads.
           For a portable copy, download **$RELEASE_BINARY**.
-          Codex CLI must be installed separately on the target computer.
+          Install Codex CLI on the computer or Linux SSH host where your project runs.
 
           - Multiple project terminals with completion alerts.
           - Fullscreen project view, collapsible file explorer, and frosted glass interface.
           - Compact top titlebar, brighter text and Ctrl-click terminal links.
           - Inline image and video viewing, large text pages and isolated HTML previews.
           - The installed edition downloads updates in the background. Restart and install from Settings when your tasks are finished.
-          - Verified with unit tests and packaged desktop tests, including real terminal button clicks.
+          - Add local folders or Linux SSH projects using your existing VS Code SSH configuration.
+          - Restore the latest Codex conversation on startup and continue interrupted turns automatically.
+          - Select and copy terminal text, copy all scrollback from the context menu, and paste with Ctrl+V.
+          - Verified with packaged desktop tests, session restart checks, and real Linux SSH/PTY integration.
 
           Commit: $GITHUB_SHA
           Build: https://github.com/$GH_REPO/actions/runs/$GITHUB_RUN_ID

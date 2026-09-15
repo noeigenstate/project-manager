@@ -87,7 +87,9 @@ try {
   const titlebar = page.locator('.titlebar');
   assert.ok(await titlebar.getByRole('textbox', { name: '搜索项目', exact: true }).isVisible());
   await titlebar.getByRole('button', { name: '添加项目', exact: true }).click();
+  await page.getByRole('button', { name: '选择本地文件夹', exact: true }).click();
   assert.equal(await application.evaluate(() => globalThis.addDialogCount), 1, 'titlebar controls are clickable');
+  await page.getByRole('button', { name: '关闭添加项目', exact: true }).click();
   await page.keyboard.press('Control+k');
   assert.equal(await page.getByRole('textbox', { name: '搜索项目', exact: true }).evaluate(input => input === document.activeElement), true);
   const material = await page.locator('.project-panel').first().evaluate(el => ({ filter: getComputedStyle(el).backdropFilter, reduced: matchMedia('(prefers-reduced-transparency: reduce)').matches, background: getComputedStyle(el).backgroundColor }));
