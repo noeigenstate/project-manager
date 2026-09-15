@@ -54,7 +54,9 @@ export function TerminalPane({ id, sessionId, fontSize, onError, focused, onOpen
     if (!host.current || !sessionId) return;
     const activateLink = (event: MouseEvent, target: string) => {
       if (!event.ctrlKey || event.button !== 0) return;
-      event.preventDefault(); event.stopPropagation();
+      // xterm activates links on mouseup. Let that event reach its document
+      // selection listener so opening a preview cannot leave a drag running.
+      event.preventDefault();
       openLink.current(id, target);
     };
     const hoverLink = (_event: MouseEvent, target: string) => { if (host.current) host.current.title = `Ctrl + 鼠标左键打开链接\n${target}`; };

@@ -8,7 +8,7 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 
 从 [Releases](https://github.com/noeigenstate/project-manager/releases/latest) 下载 Windows `.exe` 即可使用。正式版本在 Releases 中长期保留，普通 CI 构建仍可从 Actions 的 Artifacts 下载。
 
-打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.2.9-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.2.9-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
+打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.2.10-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.2.10-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
 
 ## 自动更新
 
@@ -79,6 +79,7 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 - 不再设置 1 MiB 文本或 32 MiB 图片、HTML 大小门槛。大文本和 HTML 源码每页读取约 256 KiB，支持上一页、下一页、首页、末页和输入页码跳转；只渲染当前可见行。支持 UTF-8 和带 BOM 的 UTF-16，分页不会截断中文或 emoji。大文件的行号和复制功能针对当前页，图片和网页的实际显示仍取决于可用内存及浏览器解码能力。
 - 目录按需读取，大目录每页 200 项，可以继续加载；不会预先递归扫描整个项目。项目外的链接目标不在文件预览范围内。
 - 背景是一幅树叶间透出蓝天白云的油画，图片随应用离线打包。工具栏、侧栏和终端面板叠加半透明材质与轻微背景虚化，保留树影轮廓和清晰文字；遵循系统减少动态和减少透明度偏好。背景生成说明见 [background-art.md](background-art.md)。
+- 玻璃材质借鉴 Liquid Glass 的层次感：导航、按钮、弹窗采用更圆润的轮廓、双层边缘高光和柔和阴影；终端正文有独立的暗色承托。设置使用胶囊开关，按钮按下与菜单展开有轻量反馈。这是 Windows 应用中的网页材质实现，见 [设计说明](glass-material.md)。
 - 新建终端会清除从父进程继承的 `NO_COLOR` 等禁用颜色标记，并启用 truecolor 终端能力，保留 Codex 和其他命令的 ANSI 颜色。旧终端需要在更新后重启才能使用新的环境设置。
 - 正文、路径和终端文字使用更明亮的配色，文字区域的玻璃底色加深，减少背景对阅读的影响。
 - 按住 **Ctrl + 鼠标左键** 点击终端链接：HTTP/HTTPS 地址交给默认浏览器，项目内文件进入应用预览。支持普通网址、Markdown 文件链接、OSC 8 超链接、中文路径和终端自动换行的链接；普通单击不打开链接。`art/report.html`、`./art/report.html` 等相对路径自动按对应项目根目录补全，本地和 SSH 项目均适用。Codex 输出的 `报告 (art/report.html)`、方括号包裹的路径，以及文件名中合法的括号均可识别。
@@ -153,7 +154,7 @@ npm run dist
 - 桌面回归测试会实际点击「启动终端」，覆盖网格和全屏，确认按键不被遮挡，再检查真实 PowerShell 与 Codex CLI 启动。
 - Codex 检查只运行版本和配置命令，不调用模型，不需要 API 密钥或 ChatGPT 登录。
 - 构建通过后，在对应运行的 **Artifacts** 中下载 **Project-Grid-windows-x64**，解压后双击 `.exe`。产物保留 30 天；测试截图保留 7 天。
-- 推送与 `package.json` 一致的版本标签（如 `v0.2.9`）时，构建与测试通过后会自动创建 GitHub Release，附上两个 `.exe`、`latest.yml`、`.blockmap`、SHA-256 校验文件和构建信息；普通 `main` 推送只生成 Artifacts。
+- 推送与 `package.json` 一致的版本标签（如 `v0.2.10`）时，构建与测试通过后会自动创建 GitHub Release，附上两个 `.exe`、`latest.yml`、`.blockmap`、SHA-256 校验文件和构建信息；普通 `main` 推送只生成 Artifacts。
 - 发布任务会重新校验下载产物，只为发布阶段申请仓库写权限。已发布的版本不会被重跑任务覆盖；预发布版本会标为 prerelease。
 - GitHub Packages 面向 npm、NuGet、容器等软件包；本项目以 Windows 可执行文件交付，下载入口是 Releases。
 
