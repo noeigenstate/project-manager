@@ -40,6 +40,15 @@ kbd { border-color: #dbeeff26; color: #8ca3bd; background: #e9f4ff06; }
 .project-grid { gap: 15px; }
 .project-panel { background: var(--glass); border-color: var(--glass-border); border-radius: 10px; box-shadow: inset 0 1px 0 var(--glass-highlight), 0 8px 28px #030d1a1f; }
 .project-panel:hover { border-color: #e7f3ff47; }
+.app-shell:not(.focus-mode) .panel-header, .app-shell:not(.focus-mode) .panel-name { cursor: grab; touch-action: none; user-select: none; }
+.project-grid.is-reordering { cursor: grabbing; }
+.project-grid.is-reordering .project-panel.drag-source { opacity: .65; cursor: grabbing; animation: none; border-color: #d0e8ff; }
+.project-panel.drag-source, .project-panel.drag-source * { pointer-events: none !important; }
+.project-grid.is-reordering .project-panel.drop-target { animation: none; border-color: #b6ddff; outline: 2px solid #b6ddffb0; outline-offset: 1px; box-shadow: inset 0 0 0 2px #b6ddff70, 0 0 0 2px #b6ddff80; }
+.reorder-hint { position: fixed; z-index: 100; top: 60px; left: 50%; transform: translateX(-50%); padding: 10px 16px; max-width: calc(100vw - 40px); border: 1px solid #d4e8ff55; border-radius: 9px; color: #f0f7ff; background: #233746f2; box-shadow: 0 6px 24px #07111c66; pointer-events: none; font-size: 12px; }
+.reorder-hint span { margin-left: 16px; color: #bdd1e1; font-size: 10px; }
+.project-drag-preview { position: fixed; z-index: 100; pointer-events: none; display: flex; align-items: center; gap: 12px; width: 252px; padding: 16px; border: 1px solid #d2e8ff99; border-radius: 10px; color: #f0f7ff; background: #2d4358f5; box-shadow: 0 12px 38px #07111c77; }
+.project-drag-preview b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; }
 .project-panel:focus-within:not(.has-unread):not(.is-done) { border-color: #bfd8f580; box-shadow: inset 0 1px 0 #ffffff0a, 0 0 0 1px #aacef424; }
 .panel-header { background: rgba(212, 232, 255, .055); border-radius: 9px 9px 0 0; border-color: #deeeff19; height: 44px; flex-basis: 44px; }
 .panel-name { color: #e0eaf5; }.panel-name small { color: #9aadc5; }.panel-index { color: #8ea4bd; }

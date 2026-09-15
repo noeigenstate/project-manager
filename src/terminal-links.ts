@@ -23,8 +23,24 @@ export function findLinkCandidates(text: string): LinkCandidate[] {
     }
     add(match.index, match.index + target.length, target);
   }
+  // Codex renders file references as "label (relative/path.html)". Treat the
+  // surrounding punctuation as a delimiter, including paths containing spaces.
+  const pathCharacter = /[\p{L}\p{N}_~%$+&=./\\-]/u;
+  for (const match of text.matchAll(/\(((?:[^()\r\n]|\([^()\r\n]*\))+)\)|\[([^\[\]\r\n]+)\]/g)) {
+    const target = match[1] ?? match[2];
+    // Parentheses and brackets may also be part of a directory or filename.
+    if (pathCharacter.test(text[match.index - 1] || '') || pathCharacter.test(text[match.index + match[0].length] || '')) continue;
+    if (looksLikeLink(target)) add(match.index + 1, match.index + match[0].length - 1, target);
+  }
   const files = /(?:[a-z]:[\\/]|[\\/])?(?:[\p{L}\p{N}_.@~%$+&=()[\]-]+[\\/])*[\p{L}\p{N}_@~%$+&=()[\].-]+\.[a-z][a-z\d]{0,15}(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?/giu;
-  for (const match of text.matchAll(files)) add(match.index, match.index + match[0].length, match[0]);
+  for (const match of text.matchAll(files)) {
+    let target = match[0], start = match.index;
+    const closing: Record<string, string> = { '(': ')', '[': ']' };
+    // The file regex ends at the extension, before closing punctuation. Remove
+    // unmatched outer openers, while retaining balanced names like (draft).html.
+    while (closing[target[0]] && target.split(target[0]).length > target.split(closing[target[0]]).length) { target = target.slice(1); start++; }
+    add(start, match.index + match[0].length, target);
+  }
   return links.sort((a, b) => a.start - b.start);
 }
 

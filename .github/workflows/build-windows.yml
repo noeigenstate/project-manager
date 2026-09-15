@@ -202,6 +202,8 @@ jobs:
           - Add local folders or Linux SSH projects using your existing VS Code SSH configuration.
           - Restore the latest Codex conversation on startup and continue interrupted turns automatically.
           - Select and copy terminal text, copy all scrollback from the context menu, and paste with Ctrl+V.
+          - Hold and drag a project header onto another card to swap positions; the saved order survives restarts.
+          - Ctrl-click Codex relative file paths, including parenthesized report links, to open them from the project root.
           - Verified with packaged desktop tests, session restart checks, and real Linux SSH/PTY integration.
 
           Commit: $GITHUB_SHA

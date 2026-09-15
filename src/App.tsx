@@ -11,6 +11,7 @@ import { ProjectExplorer } from './ProjectExplorer';
 import { FilePreview } from './FilePreview';
 import { AddProjectDialog } from './AddProjectDialog';
 import { SSHAuthDialog } from './SSHAuthDialog';
+import { useProjectReorder } from './useProjectReorder';
 
 const api = window.projectGrid;
 
@@ -41,11 +42,12 @@ function statusText(project: Project) {
   return '尚未启动';
 }
 
-function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus, onDone, onAction, onError, onOpenLink }: {
+function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus, onDone, onAction, onError, onOpenLink, dragging, dropTarget }: {
   project: Project; index: number; hidden: boolean; focused: boolean; fontSize: number; now: number;
   onFocus: (id: string) => void; onDone: (project: Project) => void;
   onAction: <T>(promise: Promise<Result<T>>) => Promise<T | undefined>; onError: (message: string) => void;
   onOpenLink: (id: string, target: string) => void;
+  dragging?: boolean; dropTarget?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
@@ -59,14 +61,14 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   }, [menuOpen]);
   const action = (callback: () => void) => { setMenuOpen(false); callback(); };
   return <article
-    className={`project-panel ${project.unread && !project.done ? 'has-unread' : ''} ${project.done ? 'is-done' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''}`}
+    className={`project-panel ${project.unread && !project.done ? 'has-unread' : ''} ${project.done ? 'is-done' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''} ${dragging ? 'drag-source' : ''} ${dropTarget ? 'drop-target' : ''}`}
     data-project-id={project.id} data-status={project.done ? 'done' : project.unread ? 'unread' : project.status}
     style={{ display: hidden ? 'none' : undefined }}
     onClick={event => {
       if (!focused && project.unread && !event.ctrlKey && !(event.target as Element).closest('button, input, [role="menu"], .terminal-host[data-has-selection="true"]')) onFocus(project.id);
     }}
   >
-    <header className="panel-header">
+    <header className="panel-header" title={focused ? undefined : '按住标题区域拖动，与其他项目交换位置'}>
       <span className="panel-index">{String(index + 1).padStart(2, '0')}</span>
       <button className="panel-name" onClick={() => !focused && onFocus(project.id)} title={project.kind === 'ssh' ? `${project.ssh?.host}:${project.path}` : project.path}>
         <span>{project.name}</span>
@@ -178,6 +180,8 @@ export function App() {
     try { const result = await promise; if (!result.ok) { reportError(result.error); return; } return result.value; }
     catch (err) { reportError(String(err)); }
   }, [reportError]);
+  const reorder = useProjectReorder(!focusedId && !addOpen && !settingsOpen && !sshAuth.length && (workspace?.projects.length || 0) > 1, query,
+    (source, target) => { void perform(api.swapProjects(source, target)); });
   const focusProject = useCallback((id: string) => {
     setPreviewFile(null);
     setFocusedId(id);
@@ -264,10 +268,13 @@ export function App() {
             <div className="empty-hints"><span><Circle weight="fill" size={7} />红色闪烁 · 等待查看</span><span><CheckCircle weight="fill" size={12} />绿色常亮 · 开发完成</span></div>
           </div> : <>
             {!focusedId && !visible.length && <div className="no-results"><MagnifyingGlass size={30} weight="light" /><h2>没有找到匹配项目</h2><p>试试其他项目名称或目录。</p><button className="button secondary small" onClick={() => setQuery('')}>重置搜索</button></div>}
-            <div className="project-grid" style={{ '--columns': columns, '--rows': rows, display: !focusedId && !visible.length ? 'none' : undefined } as CSSProperties}>
+            <div className={`project-grid ${reorder.drag ? 'is-reordering' : ''}`} onPointerDown={reorder.onPointerDown} onClickCapture={reorder.onClickCapture} style={{ '--columns': columns, '--rows': rows, display: !focusedId && !visible.length ? 'none' : undefined } as CSSProperties}>
               {projects.map((project, index) => <ProjectPanel key={project.id} project={project} index={index}
                 hidden={focusedId ? focusedId !== project.id : !visibleIds.has(project.id)} focused={focusedId === project.id && !previewFile}
-                fontSize={settings.fontSize} now={now} onFocus={focusProject} onDone={markDone} onAction={perform} onError={reportError} onOpenLink={openTerminalLink} />)}
+                fontSize={settings.fontSize} now={now} onFocus={focusProject} onDone={markDone} onAction={perform} onError={reportError} onOpenLink={openTerminalLink}
+                dragging={reorder.drag?.id === project.id} dropTarget={reorder.drag?.targetId === project.id} />)}
+              {reorder.drag && <><div className="reorder-hint" role="status">{reorder.drag.targetId ? `松开，与“${projects.find(project => project.id === reorder.drag?.targetId)?.name}”交换位置` : '拖到另一个项目上交换位置'}<span>Esc 取消</span></div>
+                <div className="project-drag-preview" aria-hidden="true" style={{ left: Math.min(window.innerWidth - 270, reorder.drag.x + 14), top: Math.min(window.innerHeight - 70, reorder.drag.y + 14) }}><SquaresFour size={21} /><b>{projects.find(project => project.id === reorder.drag?.id)?.name}</b></div></>}
             </div>
           </>}
         </div>

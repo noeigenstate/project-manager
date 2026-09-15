@@ -80,6 +80,15 @@ class WorkspaceStore {
     this.save();
   }
 
+  swapProjects(sourceId, targetId) {
+    const source = this.projects.findIndex(project => project.id === sourceId);
+    const target = this.projects.findIndex(project => project.id === targetId);
+    if (source < 0 || target < 0) throw new Error('项目不存在，请刷新工作区后重试。');
+    if (source === target) return;
+    [this.projects[source], this.projects[target]] = [this.projects[target], this.projects[source]];
+    this.save();
+  }
+
   complete(id, eventId, now = Date.now()) {
     const project = this.projects.find(p => p.id === id);
     if (!project || typeof eventId !== 'string' || !eventId || eventId.length > 256 || project.seenEvents.includes(eventId)) return false;

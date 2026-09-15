@@ -27,6 +27,44 @@ test('terminal link cells account for Chinese widths and wrapped rows', () => {
   assert.deepEqual(result.ends[link.end - 1], { x: 7, y: 2 });
 });
 
+test('Codex relative references exclude surrounding punctuation and preserve filename parentheses', () => {
+  const folder = 'art/protagonist_skill_trial_hy_raw_20260915';
+  const text = `查看 HTML 报告 (${folder}/report.html) · 下载报告与模型包 (${folder}/review_bundle.zip)`;
+  const links = findLinkCandidates(text);
+  assert.deepEqual(links.map(link => link.target), [`${folder}/report.html`, `${folder}/review_bundle.zip`]);
+  for (const link of links) assert.equal(text.slice(link.start, link.end), link.target, 'hover and click cover only the path');
+  for (const [text, target] of [
+    ['(./art/report.html)', './art/report.html'], ['[art/report.html]', 'art/report.html'],
+    ['((art/report.html))', 'art/report.html'], ['（art/报告.html）', 'art/报告.html'],
+    ['(art/中文 报告.html)', 'art/中文 报告.html'], ['(art/报告_(最终).html)', 'art/报告_(最终).html'],
+    ['art/(report).html', 'art/(report).html'], ['art/[draft]/report.html', 'art/[draft]/report.html'],
+    ['(art/folder(name.html)/report.html)', 'art/folder(name.html)/report.html'],
+    ['(C:\\项目 空格\\art\\report.html)', 'C:\\项目 空格\\art\\report.html'],
+    ['(./art/main.ts:12:4)', './art/main.ts:12:4'],
+  ]) {
+    const matches = findLinkCandidates(text);
+    assert.deepEqual(matches.map(link => link.target), [target], text);
+    assert.equal(text.slice(matches[0].start, matches[0].end), target, text);
+  }
+});
+
+test('detected relative report and archive paths resolve against their own project directory', async t => {
+  const prefix = path.join(os.tmpdir(), 'project-grid-relative-links-');
+  const directory = await fs.mkdtemp(prefix);
+  t.after(async () => { assert.ok(path.resolve(directory).startsWith(prefix)); await fs.rm(directory, { recursive: true, force: true }); });
+  const project = { path: path.join(directory, '项目 空格') };
+  const folder = 'art/protagonist_skill_trial_hy_raw_20260915';
+  await fs.mkdir(path.join(project.path, folder), { recursive: true });
+  for (const name of ['report.html', 'review_bundle.zip', '报告_(最终).html']) {
+    await fs.writeFile(path.join(project.path, folder, name), 'fixture');
+    for (const notation of [`(${folder}/${name})`, `(./${folder}/${name})`, `(.\\${folder.replaceAll('/', '\\')}\\${name})`]) {
+      const [link] = findLinkCandidates(notation);
+      assert.deepEqual(await resolveTerminalLink(project, link.target), { kind: 'file', path: `${folder}/${name}` });
+    }
+  }
+  await assert.rejects(resolveTerminalLink(project, findLinkCandidates('(art/missing.html)')[0].target), /未找到链接文件/);
+});
+
 test('link resolution opens HTTP URLs and project files while rejecting executable protocols and escapes', async t => {
   const prefix = path.join(os.tmpdir(), 'project-grid-links-');
   const directory = await fs.mkdtemp(prefix);

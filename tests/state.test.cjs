@@ -108,3 +108,20 @@ test('older workspace records migrate without losing completion markers or guess
   assert.equal(store.projects[0].done, true);
   assert.equal(store.settings.restoreSessions, true);
 });
+
+test('swapping project positions persists order and preserves local/SSH state', t => {
+  const { store, project, file } = fixture(t);
+  const middle = store.addSSH({ host: 'linux-middle', path: '/srv/middle' }).project;
+  const last = store.addSSH({ host: 'linux-last', path: '/srv/last' }).project;
+  store.complete(project.id, 'turn-1'); store.markDone(last.id, true);
+  store.setRestore(project.id, { terminal: true, codex: true });
+  store.swapProjects(project.id, last.id);
+  assert.deepEqual(store.projects, [last, middle, project]);
+  assert.deepEqual(new WorkspaceStore(file).projects.map(item => item.id), [last.id, middle.id, project.id]);
+  assert.equal(project.unread, 1); assert.equal(last.done, true); assert.equal(project.restore.codex, true);
+  const before = fs.readFileSync(file, 'utf8');
+  store.swapProjects(project.id, project.id);
+  assert.throws(() => store.swapProjects('missing', last.id), /项目不存在/);
+  assert.throws(() => store.swapProjects(project.id, null), /项目不存在/);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});

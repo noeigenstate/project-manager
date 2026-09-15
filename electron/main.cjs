@@ -358,6 +358,7 @@ function registerIpc() {
     restorePlans.delete(id); disposeTerminal(id); previewResources.closeProject(id); store.remove(id); branches.delete(id); startupErrors.delete(id); broadcast(); return true;
   });
   handle('workspace:acknowledge', id => { findProject(id); store.acknowledge(id); broadcast(); });
+  handle('workspace:swap', (source, target) => { findProject(source); findProject(target); store.swapProjects(source, target); broadcast(); });
   handle('workspace:done', (id, done) => { findProject(id); store.markDone(id, done); broadcast(); });
   handle('workspace:acknowledge-all', () => { for (const p of store.projects) p.unread = 0; store.save(); broadcast(); });
   handle('workspace:settings', patch => {

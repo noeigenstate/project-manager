@@ -35,6 +35,7 @@ export type Bridge = {
   answerSSHAuth(id: string, answer: string | null): Promise<Result<void>>;
   onSSHAuth(callback: (prompts: SSHAuthPrompt[]) => void): () => void;
   removeProject(id: string): Promise<Result<boolean>>;
+  swapProjects(source: string, target: string): Promise<Result<void>>;
   acknowledge(id: string): Promise<Result<void>>;
   markDone(id: string, done: boolean): Promise<Result<void>>;
   acknowledgeAll(): Promise<Result<void>>;

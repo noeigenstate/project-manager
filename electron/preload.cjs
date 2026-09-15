@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('projectGrid', {
   answerSSHAuth: (id, answer) => ipcRenderer.invoke('ssh:auth-answer', id, answer),
   onSSHAuth: callback => listen('ssh:auth-changed', callback),
   removeProject: id => ipcRenderer.invoke('workspace:remove', id),
+  swapProjects: (source, target) => ipcRenderer.invoke('workspace:swap', source, target),
   acknowledge: id => ipcRenderer.invoke('workspace:acknowledge', id),
   markDone: (id, done) => ipcRenderer.invoke('workspace:done', id, done),
   acknowledgeAll: () => ipcRenderer.invoke('workspace:acknowledge-all'),

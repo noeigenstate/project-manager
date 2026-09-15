@@ -150,6 +150,10 @@ try {
   await page.getByRole('button', { name: '继续连接', exact: true }).click();
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects.some(p => p.kind === 'ssh' && p.shellReady), 'remote terminal ready after UI authentication');
   const remote = (await page.evaluate(() => window.projectGrid.getState())).value.projects.find(p => p.kind === 'ssh');
+  for (const target of ['page.html', './page.html', '/srv/fixture/page.html']) {
+    const resolved = await page.evaluate(({ id, target }) => window.projectGrid.openLink(id, target), { id: remote.id, target });
+    assert.deepEqual(resolved, { ok: true, value: { kind: 'file', path: 'page.html' } }, 'SSH relative links use the remote project root');
+  }
   const remotePanel = page.locator(`[data-project-id="${remote.id}"]`);
   await remotePanel.getByRole('button', { name: '全屏查看 远程测试项目', exact: true }).click();
   await page.getByRole('treeitem', { name: 'README.md', exact: true }).click();
