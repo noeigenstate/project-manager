@@ -1,10 +1,11 @@
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import {
   ArrowLeft, ArrowSquareOut, ArrowsInLineVertical, ArrowClockwise, BracketsCurly,
   CaretDown, CaretRight, CheckCircle, File, FileCode, FileText, Folder, FolderOpen,
-  GearSix, LinkSimple, SidebarSimple, SpinnerGap, Image as ImageIcon, FilmStrip,
+  GearSix, LinkSimple, SidebarSimple, SpinnerGap, Image as ImageIcon, FilmStrip, FilePlus, FolderPlus,
 } from '@phosphor-icons/react';
 import type { DirectoryListing, FileEntry, Project } from './types';
+import { useExplorerFileActions } from './ExplorerFileActions';
 
 export function FileIcon({ entry, open = false }: { entry: FileEntry; open?: boolean }) {
   if (entry.kind === 'directory') return open ? <FolderOpen className="file-icon folder-icon" size={16} weight="duotone" /> : <Folder className="file-icon folder-icon" size={16} weight="duotone" />;
@@ -44,10 +45,11 @@ type NodeProps = {
   projectId: string; entry: FileEntry; depth: number; expanded: Set<string>;
   revision: number; enabled: boolean; selectedFile: string | null;
   onToggle: (path: string) => void; onSelect: (path: string) => void;
+  selected: Set<string>; choose: (entry: FileEntry, event: MouseEvent) => boolean; contextMenu: (entry: FileEntry, event: MouseEvent) => void;
 };
 
 function TreeNode(props: NodeProps) {
-  const { projectId, entry, depth, expanded, revision, enabled, selectedFile, onToggle, onSelect } = props;
+  const { projectId, entry, depth, expanded, revision, enabled, selectedFile, onToggle, onSelect, selected, choose, contextMenu } = props;
   const isDirectory = entry.kind === 'directory';
   const open = isDirectory && expanded.has(entry.path);
   const [listing, setListing] = useState<DirectoryListing | null>(null);
@@ -78,11 +80,12 @@ function TreeNode(props: NodeProps) {
   }, [projectId, entry.path, open, enabled, revision, pages]);
 
   return <div className="tree-node">
-    <button className={`tree-row ${root ? 'tree-root' : ''} ${!isDirectory && selectedFile === entry.path ? 'file-selected' : ''}`}
-      role="treeitem" aria-expanded={isDirectory ? open : undefined} aria-selected={!isDirectory && selectedFile === entry.path}
-      aria-level={depth + 1} aria-label={entry.name} title={entry.path || entry.name} data-node-path={entry.path}
+    <button className={`tree-row ${root ? 'tree-root' : ''} ${selected.has(entry.path) || !selected.size && !isDirectory && selectedFile === entry.path ? 'file-selected' : ''}`}
+      role="treeitem" aria-expanded={isDirectory ? open : undefined} aria-selected={selected.has(entry.path)}
+      aria-level={depth + 1} aria-label={entry.name} title={entry.path || entry.name} data-node-path={entry.path} data-node-kind={entry.kind}
       style={{ paddingLeft: 10 + depth * 15 }}
-      onClick={() => isDirectory ? onToggle(entry.path) : onSelect(entry.path)}
+      onClick={event => { if (!choose(entry, event)) { if (isDirectory) onToggle(entry.path); else onSelect(entry.path); } }}
+      onContextMenu={event => contextMenu(entry, event)}
       onKeyDown={event => navigateTree(event, open, isDirectory, () => onToggle(entry.path))}>
       <span className="tree-chevron">{isDirectory && (open ? <CaretDown size={12} /> : <CaretRight size={12} />)}</span>
       <FileIcon entry={entry} open={open} />
@@ -100,13 +103,16 @@ function TreeNode(props: NodeProps) {
   </div>;
 }
 
-export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFile, onCollapse, onExpandedChange, onSelectFile, onReturn, onDone, onSettings, onOpenCode }: {
+export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFile, onCollapse, onExpandedChange, onSelectFile, onReturn, onDone, onSettings, onOpenCode, onFilesRemoved, onPathRenamed }: {
   project: Project; collapsed: boolean; expandedPaths: string[]; selectedFile: string | null;
   onCollapse: () => void; onExpandedChange: (paths: string[]) => void; onSelectFile: (path: string) => void;
   onReturn: () => void; onDone: () => void; onSettings: () => void; onOpenCode: () => void;
+  onFilesRemoved: (paths: string[]) => void; onPathRenamed: (oldPath: string, newPath: string) => void;
 }) {
   const [revision, setRevision] = useState(0);
+  const location = project.kind === 'ssh' ? `${project.ssh?.host}:${project.path}` : project.path;
   const expanded = new Set(expandedPaths);
+  const files = useExplorerFileActions(project, directory => { setRevision(value => value + 1); if (directory !== undefined) onExpandedChange([...new Set([...expandedPaths, directory])]); }, onSelectFile, onFilesRemoved, onPathRenamed);
   useEffect(() => {
     if (collapsed) return;
     const refresh = () => setRevision(value => value + 1);
@@ -123,16 +129,18 @@ export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFil
       <button className="icon-button sidebar-toggle" onClick={onCollapse} title={collapsed ? '展开目录栏 · Ctrl+B' : '收起目录栏 · Ctrl+B'} aria-label={collapsed ? '展开目录栏' : '收起目录栏'} aria-expanded={!collapsed}><SidebarSimple size={18} /></button>
     </div>
     <div className="explorer-content" hidden={collapsed}>
-      <div className="explorer-project"><span className="eyebrow">{project.kind === 'ssh' ? `SSH · ${project.ssh?.host}` : '当前项目'}</span><h2>{project.name}</h2><p title={project.path}>{project.path}</p>{project.branch && <span className="explorer-branch">{project.branch}</span>}</div>
-      <div className="explorer-toolbar"><span>资源管理器</span><div><button className="icon-button" aria-label="刷新项目目录" title="刷新项目目录" onClick={() => setRevision(r => r + 1)}><ArrowClockwise size={15} /></button><button className="icon-button" aria-label="折叠所有文件夹" title="折叠所有文件夹" onClick={() => onExpandedChange([''])}><ArrowsInLineVertical size={15} /></button></div></div>
-      <div className="file-tree" role="tree" aria-label={`${project.name} 的文件目录`}>
-        <TreeNode projectId={project.id} entry={{ name: project.name, path: '', kind: 'directory' }} depth={0} expanded={expanded} revision={revision} enabled={!collapsed} selectedFile={selectedFile} onToggle={toggle} onSelect={onSelectFile} />
+      <div className="explorer-toolbar" onPointerDown={() => window.projectGrid.fileTreeFocus(project.id, false)}><div className="explorer-heading"><span>资源管理器</span><span className="explorer-path" title={location}>{location}</span></div><div className="explorer-tools"><button className="icon-button" aria-label="新建文件" title="新建文件" onClick={() => files.openCreate('file')}><FilePlus size={15} /></button><button className="icon-button" aria-label="新建文件夹" title="新建文件夹" onClick={() => files.openCreate('directory')}><FolderPlus size={15} /></button><button className="icon-button" aria-label="刷新项目目录" title="刷新项目目录" onClick={() => setRevision(r => r + 1)}><ArrowClockwise size={15} /></button><button className="icon-button" aria-label="折叠所有文件夹" title="折叠所有文件夹" onClick={() => onExpandedChange([''])}><ArrowsInLineVertical size={15} /></button></div></div>
+      <div ref={files.tree} className="file-tree" role="tree" aria-multiselectable="true" aria-label={`${project.name} 的文件目录`} onKeyDownCapture={files.onKeyDown}
+        onFocusCapture={() => window.projectGrid.fileTreeFocus(project.id, true)} onBlurCapture={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) window.projectGrid.fileTreeFocus(project.id, false); }}>
+        <TreeNode projectId={project.id} entry={{ name: project.name, path: '', kind: 'directory' }} depth={0} expanded={expanded} revision={revision} enabled={!collapsed} selectedFile={selectedFile} onToggle={toggle} onSelect={onSelectFile} selected={files.selected} choose={files.choose} contextMenu={files.contextMenu} />
       </div>
+      {files.status}
     </div>
     <div className="explorer-actions">
       <button className={`explorer-action finish-action ${project.done ? 'project-finished' : ''}`} onClick={onDone} title={project.done ? '继续开发' : '标记开发完成'} aria-label={project.done ? '继续开发' : '标记开发完成'}><CheckCircle size={18} /><span>{project.done ? '继续开发' : '标记开发完成'}</span></button>
       <button className="explorer-action" onClick={onOpenCode} title="在 VS Code 打开" aria-label="在 VS Code 打开"><ArrowSquareOut size={17} /><span>在 VS Code 打开</span></button>
       <button className="explorer-action" onClick={onSettings} title="工作台设置" aria-label="工作台设置"><GearSix size={18} /><span>设置</span></button>
     </div>
+    {files.overlays}
   </aside>;
 }

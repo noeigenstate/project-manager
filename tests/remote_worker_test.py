@@ -78,5 +78,39 @@ class RemoteFilesTest(unittest.TestCase):
         with filename.open("a", encoding="utf-8") as output: output.write('\n{"type":"event_msg","payload":{"type":"task_complete"}}\n')
         self.assertEqual(remote.recent_session(os.path.realpath(self.root), str(home))["state"], "complete")
 
+    def test_file_mutations_and_upload_do_not_overwrite_existing_data(self):
+        self.worker.create("", "新目录", "directory")
+        self.worker.create("新目录", "first.txt", "file")
+        original = self.root / "新目录" / "first.txt"
+        original.write_text("keep", encoding="utf-8")
+        with self.assertRaises(FileExistsError): self.worker.create("新目录", "first.txt", "file")
+        self.worker.rename("新目录/first.txt", "renamed.txt")
+        self.worker.create("新目录", "exists.txt", "file")
+        with self.assertRaises(ValueError): self.worker.rename("新目录/renamed.txt", "exists.txt")
+        data = b"upload fixture" * 50000
+        transfer = self.worker.start_upload("新目录", "renamed.txt", len(data))["id"]
+        for offset in range(0, len(data), remote.MAX_READ): self.worker.upload_chunk(transfer, offset, base64.b64encode(data[offset:offset + remote.MAX_READ]).decode())
+        result = self.worker.finish_upload(transfer)
+        self.assertEqual((self.root / result["path"]).read_bytes(), data)
+        self.assertEqual((self.root / "新目录/renamed.txt").read_text(), "keep")
+        canceled = self.worker.start_upload("新目录", "cancel.txt", 9)["id"]
+        with self.assertRaises(ValueError): self.worker.finish_upload(canceled)
+        self.worker.cancel_upload(canceled)
+        self.assertFalse((self.root / "新目录/cancel.txt").exists())
+        self.assertFalse(list((self.root / "新目录").glob(".project-grid-upload-*")))
+        self.worker.remove(result["path"])
+        self.assertFalse((self.root / result["path"]).exists())
+        for relative in ("", "../outside", "/outside"):
+            with self.assertRaises(ValueError): self.worker.remove(relative)
+
+    def test_deleting_remote_link_preserves_external_target(self):
+        if os.name != "posix": self.skipTest("POSIX symlink behavior")
+        outside = Path(self.temp.name) / "outside"
+        outside.mkdir(); (outside / "keep.txt").write_text("keep")
+        (self.root / "link").symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(ValueError): self.worker.create("link", "escape.txt", "file")
+        self.worker.remove("link")
+        self.assertEqual((outside / "keep.txt").read_text(), "keep")
+
 
 if __name__ == "__main__": unittest.main()

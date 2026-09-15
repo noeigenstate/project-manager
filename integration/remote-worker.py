@@ -138,6 +138,7 @@ class Worker:
         self.sequence = 0
         self.sequence_lock = threading.Lock()
         self.codex_home = os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex"))
+        self.uploads = {}
 
     def initialize(self, config):
         self.root = os.path.realpath(os.path.expanduser(config["path"]))
@@ -162,7 +163,88 @@ class Worker:
     def metadata(self, relative):
         filename = self.resolve(relative)
         info = os.stat(filename)
-        return {"path": relative, "name": os.path.basename(filename), "size": info.st_size, "modifiedAt": int(info.st_mtime * 1000), "realPath": os.path.relpath(filename, self.root).replace(os.sep, "/"), "directory": stat.S_ISDIR(info.st_mode), "file": stat.S_ISREG(info.st_mode)}
+        return {"path": relative, "name": os.path.basename(filename), "size": info.st_size, "modifiedAt": int(info.st_mtime * 1000), "realPath": os.path.relpath(filename, self.root).replace(os.sep, "/"), "directory": stat.S_ISDIR(info.st_mode), "file": stat.S_ISREG(info.st_mode), "link": os.path.islink(os.path.join(self.root, relative))}
+
+    def entry_path(self, relative):
+        if not relative or relative == ".": raise ValueError("不能删除或重命名项目根目录。")
+        self.resolve(os.path.dirname(relative))
+        if not isinstance(relative, str) or "\0" in relative or "\\" in relative or os.path.isabs(relative) or ".." in relative.split("/"): raise ValueError("无效的文件路径。")
+        parent = self.resolve(os.path.dirname(relative))
+        return os.path.join(parent, os.path.basename(relative))
+
+    def name(self, value):
+        if not isinstance(value, str) or not value or len(value) > 255 or value in (".", "..") or any(ord(char) < 32 for char in value) or "/" in value or "\\" in value: raise ValueError("无效的文件名。")
+        return value
+
+    def unique_name(self, directory, name):
+        stem, extension = os.path.splitext(name)
+        for number in range(10000):
+            candidate = name if number == 0 else "%s - 副本%s%s" % (stem, " (%s)" % number if number > 1 else "", extension)
+            if not os.path.lexists(os.path.join(directory, candidate)): return candidate
+        raise ValueError("同名文件过多。")
+
+    def create(self, relative, name, kind, unique=False):
+        parent = self.resolve(relative)
+        if not os.path.isdir(parent): raise ValueError("请选择文件夹。")
+        name = self.name(name)
+        if unique: name = self.unique_name(parent, name)
+        target = os.path.join(parent, name)
+        if kind == "directory": os.mkdir(target)
+        elif kind == "file":
+            with open(target, "xb"): pass
+        else: raise ValueError("无效的文件类型。")
+        return {"path": "/".join(filter(None, [relative, name])), "kind": kind}
+
+    def rename(self, relative, name):
+        source = self.entry_path(relative)
+        target = os.path.join(os.path.dirname(source), self.name(name))
+        if source != target:
+            if os.path.lexists(target): raise ValueError("已存在同名文件。")
+            if os.path.islink(source) or not os.path.isdir(source):
+                os.link(source, target, follow_symlinks=False)
+                os.unlink(source)
+            else: os.rename(source, target)
+        return {"path": os.path.relpath(target, self.root).replace(os.sep, "/")}
+
+    def remove(self, relative):
+        filename = self.entry_path(relative)
+        if os.path.islink(filename) or not os.path.isdir(filename): os.unlink(filename)
+        else: shutil.rmtree(filename)
+        return True
+
+    def start_upload(self, relative, name, size):
+        if type(size) is not int or size < 0 or size > 9007199254740991: raise ValueError("无效的文件大小。")
+        parent = self.resolve(relative)
+        name = self.unique_name(parent, self.name(name))
+        descriptor, temporary = tempfile.mkstemp(prefix=".project-grid-upload-", dir=parent)
+        identity = os.urandom(16).hex()
+        self.uploads[identity] = {"file": os.fdopen(descriptor, "wb"), "temporary": temporary, "target": os.path.join(parent, name), "size": size, "written": 0}
+        return {"id": identity}
+
+    def upload_chunk(self, identity, offset, data):
+        upload = self.uploads[identity]
+        chunk = base64.b64decode(data, validate=True)
+        if offset != upload["written"] or len(chunk) > MAX_READ or upload["written"] + len(chunk) > upload["size"]: raise ValueError("上传数据位置不正确。")
+        upload["file"].write(chunk); upload["written"] += len(chunk)
+        return True
+
+    def finish_upload(self, identity):
+        upload = self.uploads[identity]
+        if upload["written"] != upload["size"]: raise ValueError("文件尚未完整上传。")
+        upload["file"].flush(); os.fsync(upload["file"].fileno()); upload["file"].close()
+        # A hard link installs a completed file atomically without overwriting
+        # anything created by another process during the transfer.
+        os.link(upload["temporary"], upload["target"])
+        os.unlink(upload["temporary"]); del self.uploads[identity]
+        return {"path": os.path.relpath(upload["target"], self.root).replace(os.sep, "/")}
+
+    def cancel_upload(self, identity):
+        upload = self.uploads.pop(identity, None)
+        if upload:
+            upload["file"].close()
+            try: os.unlink(upload["temporary"])
+            except OSError: pass
+        return True
 
     def directory(self, relative, offset):
         if type(offset) is not int or offset < 0: raise ValueError("无效的目录页码。")
@@ -304,6 +386,7 @@ class Worker:
     def stop(self):
         if self.stopping: return
         self.stopping = True
+        for identity in list(self.uploads): self.cancel_upload(identity)
         if self.master is not None:
             try: os.close(self.master)
             except OSError: pass
@@ -332,6 +415,13 @@ def main():
             elif op == "read": value = worker.read(message["path"], message["offset"], message["length"])
             elif op == "preview": value = worker.preview(message["path"], message.get("page", 0))
             elif op == "resume-info": value = recent_session(worker.coding_root, worker.codex_home)
+            elif op == "create": value = worker.create(message.get("path", ""), message["name"], message["kind"], message.get("unique", False))
+            elif op == "rename": value = worker.rename(message["path"], message["name"])
+            elif op == "remove": value = worker.remove(message["path"])
+            elif op == "upload-start": value = worker.start_upload(message.get("path", ""), message["name"], message["size"])
+            elif op == "upload-chunk": value = worker.upload_chunk(message["transfer"], message["offset"], message["data"])
+            elif op == "upload-finish": value = worker.finish_upload(message["transfer"])
+            elif op == "upload-cancel": value = worker.cancel_upload(message["transfer"])
             else: raise ValueError("不支持的远程请求。")
             emit({"type": "response", "id": identity, "ok": True, "value": value})
         except Exception as error: emit({"type": "response", "id": identity, "ok": False, "error": str(error)[:1000]})

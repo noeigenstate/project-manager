@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   SquaresFour, FolderSimplePlus, Bell, MagnifyingGlass, ArrowsOutSimple,
   Play, Terminal as TerminalIcon, Check, DotsThree, GitBranch, X, Minus, Square,
   GearSix, CheckCircle, FolderOpen, Power, ArrowCounterClockwise,
-  ArrowSquareOut, Monitor, Info, Circle, SpeakerHigh, Globe,
+  ArrowSquareOut, Monitor, Info, Circle, SpeakerHigh, Globe, Microphone,
 } from '@phosphor-icons/react';
 import type { AppUpdateState, Project, Result, Settings, SSHAuthPrompt, Workspace } from './types';
 import { TerminalPane } from './TerminalPane';
@@ -12,6 +12,7 @@ import { FilePreview } from './FilePreview';
 import { AddProjectDialog } from './AddProjectDialog';
 import { SSHAuthDialog } from './SSHAuthDialog';
 import { useProjectReorder } from './useProjectReorder';
+const VoiceDialog = lazy(() => import('./VoiceDialog').then(module => ({ default: module.VoiceDialog })));
 
 const api = window.projectGrid;
 
@@ -42,17 +43,20 @@ function statusText(project: Project) {
   return '尚未启动';
 }
 
-function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus, onDone, onAction, onError, onOpenLink, dragging, dropTarget }: {
+function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus, onDone, onAction, onError, onOpenLink, dragging, dropTarget, onVoice }: {
   project: Project; index: number; hidden: boolean; focused: boolean; fontSize: number; now: number;
   onFocus: (id: string) => void; onDone: (project: Project) => void;
   onAction: <T>(promise: Promise<Result<T>>) => Promise<T | undefined>; onError: (message: string) => void;
   onOpenLink: (id: string, target: string) => void;
   dragging?: boolean; dropTarget?: boolean;
+  onVoice: (project: Project) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   const hasTerminal = !!project.sessionId;
   const stopped = project.status === 'stopped' || project.status === 'exited';
+  const completionAge = project.lastCompletedAt === null ? Infinity : Date.now() - project.lastCompletedAt;
+  const freshCompletion = !!project.unread && !project.done && completionAge >= 0 && completionAge < 9000;
   useEffect(() => {
     if (!menuOpen) return;
     const dismiss = (event: PointerEvent) => { if (!menu.current?.contains(event.target as Node)) setMenuOpen(false); };
@@ -61,14 +65,14 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   }, [menuOpen]);
   const action = (callback: () => void) => { setMenuOpen(false); callback(); };
   return <article
-    className={`project-panel ${project.unread && !project.done ? 'has-unread' : ''} ${project.done ? 'is-done' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''} ${dragging ? 'drag-source' : ''} ${dropTarget ? 'drop-target' : ''}`}
+    className={`project-panel ${project.unread && !project.done ? 'has-unread' : ''} ${freshCompletion ? 'attention-active' : ''} ${project.done ? 'is-done' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''} ${dragging ? 'drag-source' : ''} ${dropTarget ? 'drop-target' : ''}`}
     data-project-id={project.id} data-status={project.done ? 'done' : project.unread ? 'unread' : project.status}
     style={{ display: hidden ? 'none' : undefined }}
     onClick={event => {
       if (!focused && project.unread && !event.ctrlKey && !(event.target as Element).closest('button, input, [role="menu"], .terminal-host[data-has-selection="true"]')) onFocus(project.id);
     }}
   >
-    <header className="panel-header" title={focused ? undefined : '按住标题区域拖动，与其他项目交换位置'}>
+    <header className="panel-header" title={focused ? undefined : '按住标题区域拖动排序，其他项目会自动让位'}>
       <span className="panel-index">{String(index + 1).padStart(2, '0')}</span>
       <button className="panel-name" onClick={() => !focused && onFocus(project.id)} title={project.kind === 'ssh' ? `${project.ssh?.host}:${project.path}` : project.path}>
         <span>{project.name}</span>
@@ -113,6 +117,7 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
         <span>{project.lastCompletedAt ? `${relativeTime(project.lastCompletedAt, now)}完成一轮` : stopped ? project.kind === 'ssh' ? '远程项目' : '本地项目' : '独立终端'}</span>
       </span>
       <div className="panel-footer-actions">
+        <IconButton label={`语音输入 ${project.name}`} className="voice-button" onClick={() => onVoice(project)}><Microphone size={14} /></IconButton>
         {project.unread > 1 && !project.done && <span className="unread-count">{project.unread} 轮未查看</span>}
         {stopped && hasTerminal && <button className="text-button" onClick={() => onAction(api.startTerminal(project.id))}><Play size={12} weight="fill" />重新启动</button>}
         {!stopped && !project.codexActive && project.status !== 'starting' && <button className="text-button" disabled={!project.shellReady} title="在空白终端提示符下启动 Codex" onClick={() => onAction(api.launchCodex(project.id))}><Play size={12} weight="fill" />启动 Codex</button>}
@@ -122,9 +127,10 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   </article>;
 }
 
-function SettingsDialog({ settings, updates, onCheckUpdate, onInstallUpdate, onDownloadPage, close, update, quit }: {
+function SettingsDialog({ settings, updates, onCheckUpdate, onInstallUpdate, onDownloadPage, close, update, quit, onVoice }: {
   settings: Settings; close: () => void; update: (patch: Partial<Settings>) => void; quit: () => void;
   updates: AppUpdateState | null; onCheckUpdate: () => void; onInstallUpdate: () => void; onDownloadPage: () => void;
+  onVoice: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
@@ -137,6 +143,7 @@ function SettingsDialog({ settings, updates, onCheckUpdate, onInstallUpdate, onD
       <label className="setting-row"><span><Monitor size={19} /><span><b>关闭到托盘</b><small>关闭窗口后，终端和任务继续运行</small></span></span><input type="checkbox" checked={settings.closeToTray} onChange={e => update({ closeToTray: e.target.checked })} /></label>
       <label className="setting-row"><span><TerminalIcon size={19} /><span><b>终端字号</b><small>全屏与网格共用字号</small></span></span><select aria-label="终端字号" value={settings.fontSize} onChange={e => update({ fontSize: Number(e.target.value) })}>{[10, 11, 12, 13, 14, 16, 18, 20].map(n => <option key={n} value={n}>{n} px</option>)}</select></label>
       <label className="setting-row"><span><ArrowCounterClockwise size={19} /><span><b>启动时恢复工作</b><small>恢复最近会话，被中断的任务自动发送“继续”</small></span></span><input type="checkbox" checked={settings.restoreSessions} onChange={event => update({ restoreSessions: event.target.checked })} /></label>
+      <div className="setting-row"><span><Microphone size={19} /><span><b>本地语音输入</b><small>检测麦克风，下载离线识别模型</small></span></span><button className="button secondary small" onClick={onVoice}>语音设置</button></div>
       {updates && <section className="update-section" aria-label="应用更新">
         <div className="update-heading"><b>应用更新</b><span>当前版本 v{updates.currentVersion}</span></div>
         <p role="status">{updates.status === 'unavailable' ? '当前为便携版或开发版。安装 Windows 版后，即可自动检查和下载更新。'
@@ -167,6 +174,8 @@ export function App() {
   const [now, setNow] = useState(Date.now());
   const [addOpen, setAddOpen] = useState(false);
   const [sshAuth, setSSHAuth] = useState<SSHAuthPrompt[]>([]);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [voiceTarget, setVoiceTarget] = useState<{ id: string; sessionId: string | null; name: string } | null>(null);
   const [expandedByProject, setExpandedByProject] = useState<Record<string, string[]>>({});
   const [previewFile, setPreviewFile] = useState<{ projectId: string; path: string } | null>(null);
   const queryInput = useRef<HTMLInputElement>(null);
@@ -180,8 +189,8 @@ export function App() {
     try { const result = await promise; if (!result.ok) { reportError(result.error); return; } return result.value; }
     catch (err) { reportError(String(err)); }
   }, [reportError]);
-  const reorder = useProjectReorder(!focusedId && !addOpen && !settingsOpen && !sshAuth.length && (workspace?.projects.length || 0) > 1, query,
-    (source, target) => { void perform(api.swapProjects(source, target)); });
+  const reorder = useProjectReorder(!focusedId && !addOpen && !settingsOpen && !voiceOpen && !sshAuth.length && (workspace?.projects.length || 0) > 1, query,
+    workspace?.projects.map(project => project.id) || [], ids => perform(api.reorderProjects(ids)));
   const focusProject = useCallback((id: string) => {
     setPreviewFile(null);
     setFocusedId(id);
@@ -226,6 +235,8 @@ export function App() {
   if (!api) return <div className="startup-message"><SquaresFour size={38} /><h1>Project Grid 是桌面应用</h1><p>请在项目目录运行 npm start，或双击打包后的应用。</p></div>;
   if (!workspace) return <div className="startup-message"><SquaresFour size={34} /><p>{error || '正在打开工作区…'}</p></div>;
   const { projects, settings } = workspace;
+  const projectRecords = new Map(projects.map(project => [project.id, project]));
+  const orderedProjects = reorder.order ? reorder.order.flatMap(id => projectRecords.get(id) || []) : projects;
   const unread = projects.filter(p => p.unread > 0 && !p.done).length;
   const done = projects.filter(p => p.done).length;
   const visible = projects.filter(p => !query || `${p.name} ${p.path} ${p.ssh?.host || ''}`.toLowerCase().includes(query.toLowerCase()));
@@ -252,6 +263,8 @@ export function App() {
     </div>
     <div className="workspace-layout">
       {focus && <ProjectExplorer key={focus.id} project={focus} collapsed={settings.explorerCollapsed}
+        onFilesRemoved={paths => setPreviewFile(current => current?.projectId === focus.id && paths.some(path => current.path === path || current.path.startsWith(path + '/')) ? null : current)}
+        onPathRenamed={(oldPath, newPath) => setPreviewFile(current => current?.projectId === focus.id && (current.path === oldPath || current.path.startsWith(oldPath + '/')) ? { projectId: focus.id, path: newPath + current.path.slice(oldPath.length) } : current)}
         expandedPaths={expandedByProject[focus.id] ?? ['']} selectedFile={previewFile?.projectId === focus.id ? previewFile.path : null}
         onCollapse={() => setPreference({ explorerCollapsed: !settings.explorerCollapsed })}
         onExpandedChange={paths => setExpandedByProject(value => ({ ...value, [focus.id]: paths }))}
@@ -269,12 +282,11 @@ export function App() {
           </div> : <>
             {!focusedId && !visible.length && <div className="no-results"><MagnifyingGlass size={30} weight="light" /><h2>没有找到匹配项目</h2><p>试试其他项目名称或目录。</p><button className="button secondary small" onClick={() => setQuery('')}>重置搜索</button></div>}
             <div className={`project-grid ${reorder.drag ? 'is-reordering' : ''}`} onPointerDown={reorder.onPointerDown} onClickCapture={reorder.onClickCapture} style={{ '--columns': columns, '--rows': rows, display: !focusedId && !visible.length ? 'none' : undefined } as CSSProperties}>
-              {projects.map((project, index) => <ProjectPanel key={project.id} project={project} index={index}
+              {orderedProjects.map((project, index) => <div key={project.id} className={`project-slot ${reorder.drag?.id === project.id ? 'drag-placeholder' : ''}`} data-project-slot={project.id} style={{ display: focusedId ? focusedId !== project.id ? 'none' : undefined : !visibleIds.has(project.id) ? 'none' : undefined }}><ProjectPanel project={project} index={index}
                 hidden={focusedId ? focusedId !== project.id : !visibleIds.has(project.id)} focused={focusedId === project.id && !previewFile}
                 fontSize={settings.fontSize} now={now} onFocus={focusProject} onDone={markDone} onAction={perform} onError={reportError} onOpenLink={openTerminalLink}
-                dragging={reorder.drag?.id === project.id} dropTarget={reorder.drag?.targetId === project.id} />)}
-              {reorder.drag && <><div className="reorder-hint" role="status">{reorder.drag.targetId ? `松开，与“${projects.find(project => project.id === reorder.drag?.targetId)?.name}”交换位置` : '拖到另一个项目上交换位置'}<span>Esc 取消</span></div>
-                <div className="project-drag-preview" aria-hidden="true" style={{ left: Math.min(window.innerWidth - 270, reorder.drag.x + 14), top: Math.min(window.innerHeight - 70, reorder.drag.y + 14) }}><SquaresFour size={21} /><b>{projects.find(project => project.id === reorder.drag?.id)?.name}</b></div></>}
+                dragging={reorder.drag?.id === project.id} onVoice={project => { setVoiceTarget({ id: project.id, sessionId: project.sessionId, name: project.name }); setVoiceOpen(true); }} /> </div>)}
+              {reorder.drag && <div className="reorder-hint" role="status">拖动项目排序 · 松开完成<span>Esc 取消</span></div>}
             </div>
           </>}
         </div>
@@ -282,8 +294,9 @@ export function App() {
       </main>
     </div>
     {error && <div className="error-toast" role="alert"><Info size={18} /><span>{error}</span><IconButton label="关闭提示" onClick={() => setError(null)}><X size={16} /></IconButton></div>}
-    {settingsOpen && <SettingsDialog settings={settings} updates={updates} onCheckUpdate={() => { perform(api.checkForUpdates()); }} onInstallUpdate={() => { perform(api.installUpdate()); }} onDownloadPage={() => { perform(api.openDownloadPage()); }} close={() => setSettingsOpen(false)} update={setPreference} quit={() => perform(api.quit())} />}
+    {settingsOpen && <SettingsDialog settings={settings} updates={updates} onCheckUpdate={() => { perform(api.checkForUpdates()); }} onInstallUpdate={() => { perform(api.installUpdate()); }} onDownloadPage={() => { perform(api.openDownloadPage()); }} close={() => setSettingsOpen(false)} update={setPreference} quit={() => perform(api.quit())} onVoice={() => { setSettingsOpen(false); setVoiceTarget(null); setVoiceOpen(true); }} />}
     {addOpen && <AddProjectDialog onClose={() => setAddOpen(false)} onAdded={() => setQuery('')} onError={reportError} />}
     {sshAuth[0] && <SSHAuthDialog key={sshAuth[0].id} request={sshAuth[0]} />}
+    {voiceOpen && <Suspense fallback={null}><VoiceDialog target={voiceTarget} close={() => setVoiceOpen(false)} /></Suspense>}
   </div>;
 }

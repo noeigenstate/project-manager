@@ -182,7 +182,7 @@ try {
   assert.equal(animation, 'attention-border');
   console.log('PASS: real PowerShell notify -> authenticated local pipe -> red blinking panel, duplicates ignored');
 
-  const projectOrder = () => page.locator('.project-grid > .project-panel').evaluateAll(panels => panels.map(panel => panel.dataset.projectId));
+  const projectOrder = () => page.locator('.project-grid > .project-slot > .project-panel').evaluateAll(panels => panels.map(panel => panel.dataset.projectId));
   const beginProjectDrag = async (sourceId, targetId) => {
     const source = page.locator(`[data-project-id="${sourceId}"] .panel-name`);
     const target = page.locator(`[data-project-id="${targetId}"] .panel-header`);
@@ -191,15 +191,15 @@ try {
     await page.mouse.down();
     await page.locator(`[data-project-id="${sourceId}"].drag-source`).waitFor();
     await page.mouse.move(to.x + 40, to.y + to.height / 2, { steps: 10 });
-    await page.locator(`[data-project-id="${targetId}"].drop-target`).waitFor();
+    await page.locator(`[data-project-slot="${sourceId}"].drag-placeholder`).waitFor();
   };
   const originalOrder = projects.map(project => project.id);
   const sessionIds = Object.fromEntries((await page.evaluate(() => window.projectGrid.getState())).value.projects.map(project => [project.id, project.sessionId]));
   await beginProjectDrag(projects[0].id, projects[2].id);
   await page.screenshot({ path: path.join(output, 'project-drag.png') });
   await page.mouse.up();
-  const swappedOrder = [...originalOrder]; [swappedOrder[0], swappedOrder[2]] = [swappedOrder[2], swappedOrder[0]];
-  await waitFor(async () => JSON.stringify(await projectOrder()) === JSON.stringify(swappedOrder), 'drop exchanges exactly two project positions');
+  const swappedOrder = [...originalOrder]; swappedOrder.splice(0, 1); swappedOrder.splice(2, 0, originalOrder[0]);
+  await waitFor(async () => JSON.stringify(await projectOrder()) === JSON.stringify(swappedOrder) && await page.locator('.is-reordering').count() === 0, 'drop inserts the project and shifts neighboring positions');
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(dataDir, 'workspace.json'), 'utf8')).projects.map(project => project.id), swappedOrder);
   const afterDrag = (await page.evaluate(() => window.projectGrid.getState())).value.projects;
   assert.deepEqual(Object.fromEntries(afterDrag.map(project => [project.id, project.sessionId])), sessionIds);
@@ -207,14 +207,15 @@ try {
   assert.equal(await page.locator('.focus-mode').count(), 0, 'drop does not trigger fullscreen');
   await beginProjectDrag(projects[0].id, projects[2].id);
   await page.keyboard.press('Escape'); await page.mouse.up();
+  await waitFor(async () => await page.locator('.is-reordering').count() === 0, 'canceled drag returns to its original slot');
   assert.deepEqual(await projectOrder(), swappedOrder, 'Escape cancels a pending swap');
   assert.equal(await page.locator('.focus-mode').count(), 0);
-  await beginProjectDrag(projects[0].id, projects[2].id); await page.mouse.up();
+  await beginProjectDrag(projects[0].id, projects[1].id); await page.mouse.up();
   await waitFor(async () => JSON.stringify(await projectOrder()) === JSON.stringify(originalOrder), 'a second drop restores the original order');
   await page.locator(`[data-project-id="${projects[1].id}"] .panel-name`).click();
   await page.waitForSelector('.focus-mode');
   await page.getByRole('button', { name: '返回总览', exact: true }).click();
-  console.log('PASS: long-press swapping persists positions, preserves PTYs and unread state, cancels with Escape and keeps ordinary clicks');
+  console.log('PASS: whole-card insertion reordering preserves PTYs, persists positions, cancels with Escape and keeps ordinary clicks');
 
   const panel = page.locator(`[data-project-id="${projects[0].id}"]`);
   const sessionBefore = (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].sessionId;
@@ -453,6 +454,12 @@ try {
   assert.equal((await page.evaluate(() => window.projectGrid.installUpdate())).ok, false, 'installing before a verified download is rejected');
   await page.screenshot({ path: path.join(output, 'settings.png') });
   await page.getByRole('button', { name: '关闭设置', exact: true }).click();
+  const idlePanel = page.locator(`[data-project-id="${projects[2].id}"]`);
+  await waitFor(async () => idlePanel.evaluate(element => !element.classList.contains('attention-active') && getComputedStyle(element).animationName === 'none'), 'completed idle project becomes quiet after its initial alert', 13000);
+  await complete('other-project-turn', target);
+  assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].unread, 1, 'same completed turn never repeats the notification');
+  assert.equal(await idlePanel.evaluate(element => getComputedStyle(element).animationName), 'none');
+  console.log('PASS: idle completed projects retain a static red frame without repeating the breathing alert');
   for (const width of process.argv.includes('--compact-screen') ? [1600, 1400] : [1600, 1200, 900, 820]) {
     await application.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 700), width);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));

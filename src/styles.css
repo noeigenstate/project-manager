@@ -94,7 +94,7 @@ kbd { font: 9px 'Segoe UI', sans-serif; border: 1px solid #303743; border-radius
 .project-panel:has(.panel-menu) { z-index: 20; }
 .project-panel:focus-within:not(.has-unread):not(.is-done) { border-color: #65809e; box-shadow: 0 0 0 1px #65809e25; }
 .project-panel.has-unread { border-color: #ef727c; box-shadow: 0 0 0 1px #ef727c5e, 0 0 16px #d6576710; }
-.project-panel.has-unread:not(.is-focused) { animation: attention-border 1.8s ease-in-out infinite; }
+.project-panel.attention-active:not(.is-focused) { animation: attention-border 2.8s ease-in-out 3; }
 @keyframes attention-border { 0%, 100% { border-color: #fa808a; box-shadow: 0 0 0 1px #f1758170, 0 0 17px #f46d7c18; } 50% { border-color: #8b404c; box-shadow: 0 0 0 1px #9e4a5630, 0 0 0 #0000; } }
 .project-panel.is-done { border-color: #4e956f; box-shadow: 0 0 0 1px #619b761c; animation: none; }
 .panel-header { height: 44px; flex: 0 0 44px; border-bottom: 1px solid #252b34; display: flex; align-items: center; padding: 0 8px 0 12px; gap: 8px; background: #191e25; border-radius: 6px 6px 0 0; }

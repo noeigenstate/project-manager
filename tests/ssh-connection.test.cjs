@@ -6,6 +6,7 @@ const { randomUUID } = require('node:crypto');
 const { SSHAuthServer } = require('../electron/ssh-auth.cjs');
 const { RemoteConnection } = require('../electron/remote-connection.cjs');
 const { PreviewResources, resourceResponse } = require('../electron/preview-resources.cjs');
+const { FileOperations } = require('../electron/file-operations.cjs');
 const { createSSHFixture } = require('./helpers/ssh-fixture.cjs');
 
 const integrationDir = path.resolve(__dirname, '..', 'integration');
@@ -95,4 +96,21 @@ test('Linux remote worker reads real files, enforces boundaries and emits Codex 
   await waitFor(() => events.some(event => event.type === 'turn-complete'));
   await waitFor(() => events.some(event => event.type === 'codex-exited'));
   assert.ok(output.includes('REMOTE_CODEX_DONE'));
+  let clipboard = [];
+  const operations = new FileOperations({ cacheRoot: path.join(fixture.directory, 'clipboard-cache'), remote: () => connection,
+    clipboard: async (action, paths) => action === 'copy' ? (clipboard = paths) : clipboard, confirmDelete: async () => true,
+  });
+  await operations.create(project, '', '上传目录', 'directory');
+  await operations.create(project, '上传目录', 'empty.txt', 'file');
+  await operations.rename(project, '上传目录/empty.txt', 'renamed.txt');
+  const source = path.join(fixture.directory, 'upload.bin'); const payload = Buffer.alloc(1024 * 1024 + 11, 73);
+  await fs.writeFile(source, payload); clipboard = [source];
+  const pasted = await operations.paste(project, '上传目录');
+  assert.deepEqual(pasted.pasted, ['上传目录/upload.bin']);
+  assert.deepEqual(await fs.readFile(path.join(fixture.project, '上传目录/upload.bin')), payload);
+  await operations.copy(project, ['上传目录']);
+  assert.deepEqual(await fs.readFile(path.join(clipboard[0], 'upload.bin')), payload);
+  await operations.remove(project, ['上传目录']);
+  await assert.rejects(fs.stat(path.join(fixture.project, '上传目录')));
+  assert.deepEqual(await fs.readFile(source), payload);
 });

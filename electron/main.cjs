@@ -18,6 +18,8 @@ const { getSSHInfo } = require('./ssh-config.cjs');
 const { SSHAuthServer } = require('./ssh-auth.cjs');
 const { RemoteConnection } = require('./remote-connection.cjs');
 const { recentSession, resumeCommand } = require('./session-restore.cjs');
+const { FileOperations } = require('./file-operations.cjs');
+const { VoiceManager } = require('./voice.cjs');
 
 const root = path.join(__dirname, '..');
 const integrationDir = app.isPackaged ? path.join(process.resourcesPath, 'integration') : path.join(root, 'integration');
@@ -41,6 +43,10 @@ let runtimeDir;
 let sshAskpassPath;
 let sshAskpassDir;
 let activeTerminal = null;
+let activeFileTree = null;
+let fileOperations, fileProgress = null;
+let voiceManager;
+let attentionTimer;
 const powershellPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 
 function send(channel, data) { if (window && !window.isDestroyed()) window.webContents.send(channel, data); }
@@ -102,7 +108,11 @@ function showWindow(id) {
 }
 
 function notifyCompletion(project) {
-  if (!window.isFocused()) window.flashFrame(true);
+  if (!window.isFocused()) {
+    window.flashFrame(true); clearTimeout(attentionTimer);
+    attentionTimer = setTimeout(() => { if (window && !window.isDestroyed()) window.flashFrame(false); }, 9000);
+    attentionTimer.unref?.();
+  }
   if (store.settings.notifications && Notification.isSupported()) {
     const note = new Notification({
       title: `${project.name} · Codex 已完成`,
@@ -359,6 +369,7 @@ function registerIpc() {
   });
   handle('workspace:acknowledge', id => { findProject(id); store.acknowledge(id); broadcast(); });
   handle('workspace:swap', (source, target) => { findProject(source); findProject(target); store.swapProjects(source, target); broadcast(); });
+  handle('workspace:reorder', ids => { store.reorderProjects(ids); broadcast(); });
   handle('workspace:done', (id, done) => { findProject(id); store.markDone(id, done); broadcast(); });
   handle('workspace:acknowledge-all', () => { for (const p of store.projects) p.unread = 0; store.save(); broadcast(); });
   handle('workspace:settings', patch => {
@@ -367,6 +378,18 @@ function registerIpc() {
     if (patch.restoreSessions === false) restorePlans.clear();
   });
   handle('project:directory', (id, relativePath = '', offset = 0) => findProject(id).kind === 'ssh' ? remoteFor(id).request('directory', { path: relativePath, offset }) : listDirectory(findProject(id), relativePath, offset));
+  handle('project:create-entry', (id, directory, name, kind) => fileOperations.create(findProject(id), directory, name, kind));
+  handle('project:rename-entry', (id, relative, name) => fileOperations.rename(findProject(id), relative, name));
+  handle('project:delete-entries', (id, paths) => fileOperations.remove(findProject(id), paths));
+  handle('project:copy-entries', (id, paths) => fileOperations.copy(findProject(id), paths));
+  handle('project:paste-entries', (id, directory) => fileOperations.paste(findProject(id), directory));
+  handle('files:progress', () => fileProgress);
+  handle('files:cancel', () => fileOperations.cancel());
+  handle('voice:state', () => voiceManager.getState());
+  handle('voice:prepare', () => voiceManager.prepare());
+  handle('voice:cancel', mode => { if (!['download', 'recognition'].includes(mode)) throw new Error('无效的语音操作。'); voiceManager.cancel(mode); });
+  handle('voice:transcribe', (audio, language) => voiceManager.transcribe(audio, language));
+  listen('files:focus', (id, focused) => { if (focused) { findProject(id); activeFileTree = id; activeTerminal = null; } else if (activeFileTree === id) activeFileTree = null; });
   handle('project:file', async (id, relativePath, pageIndex) => {
     const project = findProject(id);
     const preview = project.kind === 'ssh' ? await remoteFor(id).request('preview', { path: relativePath, page: pageIndex || 0 }) : await readProjectFile(project, relativePath, pageIndex);
@@ -461,7 +484,13 @@ function registerIpc() {
   });
   handle('clipboard:copy', text => { if (typeof text !== 'string') throw new Error('无效的剪贴板内容。'); return clipboard.writeText(text); });
   handle('clipboard:read', () => clipboard.readText());
-  listen('terminal:focus', (id, focused) => { if (sessions.has(id) && focused) activeTerminal = id; else if (activeTerminal === id) activeTerminal = null; });
+  handle('terminal:paste', (id, text, sessionId) => {
+    const session = sessions.get(id);
+    if (!session || session.sessionId !== sessionId || ['starting', 'exited'].includes(session.status)) throw new Error('终端已变化或尚未就绪，请复制文字后手动粘贴。');
+    if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('无效的文字。');
+    send('terminal:paste', { id, sessionId, text });
+  });
+  listen('terminal:focus', (id, focused) => { if (sessions.has(id) && focused) { activeTerminal = id; activeFileTree = null; } else if (activeTerminal === id) activeTerminal = null; });
   listen('window:minimize', () => window.minimize());
   listen('window:maximize', () => window.isMaximized() ? window.unmaximize() : window.maximize());
   listen('window:close', () => window.close());
@@ -475,6 +504,14 @@ else {
   app.whenReady().then(async () => {
     fs.mkdirSync(app.getPath('userData'), { recursive: true });
     store = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace.json'));
+    voiceManager = new VoiceManager({ directory: path.join(app.getPath('userData'), 'voice'), fetcher: (url, options) => electronNet.fetch(url, options), changed: state => send('voice:state', state) });
+    fileOperations = new FileOperations({ integrationDir, cacheRoot: path.join(app.getPath('userData'), 'file-clipboard'), remote: remoteFor,
+      trash: filename => shell.trashItem(filename),
+      confirmDelete: async (project, paths) => (await dialog.showMessageBox(window, { type: 'question', title: '删除文件', message: `删除 ${paths.length} 个文件或文件夹？`,
+        detail: `${paths.slice(0, 5).join('\n')}${paths.length > 5 ? '\n…' : ''}\n\n${project.kind === 'ssh' ? '远程文件会被永久删除。' : '本地文件会移入回收站。'}`,
+        buttons: ['取消', '删除'], defaultId: 0, cancelId: 0 })).response === 1,
+      progress: value => { fileProgress = value; send('files:progress', value); },
+    });
     runtimeDir = fs.mkdtempSync(path.join(app.getPath('userData'), 'runtime-'));
     eventServer = await createEventServer(onEvent);
     sshAuth = await new SSHAuthServer(queue => send('ssh:auth-changed', queue)).start();
@@ -521,6 +558,7 @@ else {
     window.webContents.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown' || activeTerminal || input.alt) return;
       const key = input.key.toLowerCase();
+      if (activeFileTree && (((input.control || input.meta) && ['a', 'c', 'v'].includes(key)) || ['delete', 'f2'].includes(key))) return;
       let action;
       if (input.control || input.meta) action = { c: 'copy', x: 'cut', v: input.shift ? 'pasteAndMatchStyle' : 'paste', a: 'selectAll', z: input.shift ? 'redo' : 'undo', y: 'redo', insert: 'copy' }[key];
       else if (input.shift && key === 'insert') action = 'paste';
@@ -531,9 +569,11 @@ else {
       if (!event.isMainFrame && event.url !== 'about:blank' && !previewResources.hasUrl(event.url)) event.preventDefault();
     });
     const allowPlayerFullscreen = (contents, permission, details) => permission === 'fullscreen' && contents === window.webContents && details.isMainFrame === true;
-    window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => callback(allowPlayerFullscreen(contents, permission, details)));
-    window.webContents.session.setPermissionCheckHandler((contents, permission, _origin, details) => allowPlayerFullscreen(contents, permission, details));
+    const isAppFrame = (contents, details) => contents === window.webContents && details.isMainFrame === true && (devUrl ? contents.getURL().startsWith(devUrl + '/') : contents.getURL().startsWith('project-grid://app/'));
+    window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => callback(allowPlayerFullscreen(contents, permission, details) || permission === 'media' && isAppFrame(contents, details) && details.mediaTypes?.length > 0 && details.mediaTypes.every(type => type === 'audio')));
+    window.webContents.session.setPermissionCheckHandler((contents, permission, _origin, details) => allowPlayerFullscreen(contents, permission, details) || permission === 'media' && isAppFrame(contents, details) && details.mediaType === 'audio');
     window.once('ready-to-show', () => window.show());
+    window.on('focus', () => { clearTimeout(attentionTimer); window.flashFrame(false); });
     window.webContents.on('render-process-gone', (_event, details) => {
       if (!quitting && details.reason !== 'clean-exit') window.reload();
     });
@@ -573,6 +613,8 @@ else {
   });
 }
 app.on('before-quit', () => {
+  clearTimeout(attentionTimer);
+  voiceManager?.close(); fileOperations?.cancel();
   quitting = true;
   updateManager?.dispose();
   clearTimeout(stateTimer);

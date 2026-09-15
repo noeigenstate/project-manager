@@ -114,6 +114,7 @@ export function TerminalPane({ id, sessionId, fontSize, onError, focused, onOpen
       queued = [];
     }).catch(error => report.current(String(error)));
     const input = terminal.onData(data => window.projectGrid.writeTerminal(id, data));
+    const offPaste = window.projectGrid.onTerminalPaste(packet => { if (!disposed && packet.id === id && packet.sessionId === sessionId) terminal.paste(packet.text); });
     const selection = terminal.onSelectionChange(() => { if (host.current) host.current.dataset.hasSelection = String(terminal.hasSelection()); });
     const resized = terminal.onResize(({ cols, rows }) => window.projectGrid.resizeTerminal(id, cols, rows));
     terminal.attachCustomKeyEventHandler(event => {
@@ -145,7 +146,7 @@ export function TerminalPane({ id, sessionId, fontSize, onError, focused, onOpen
     const frame = requestAnimationFrame(resize);
     return () => {
       disposed = true; queued = [];
-      unsubscribe(); input.dispose(); selection.dispose(); resized.dispose(); links.dispose(); observer.disconnect(); cancelAnimationFrame(frame);
+      unsubscribe(); offPaste(); input.dispose(); selection.dispose(); resized.dispose(); links.dispose(); observer.disconnect(); cancelAnimationFrame(frame);
       terminal.textarea?.removeEventListener('focus', focusIn); terminal.textarea?.removeEventListener('blur', focusOut); focusOut();
       terminal.dispose(); term.current = null; fit.current = null;
     };

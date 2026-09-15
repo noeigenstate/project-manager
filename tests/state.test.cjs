@@ -125,3 +125,14 @@ test('swapping project positions persists order and preserves local/SSH state', 
   assert.throws(() => store.swapProjects(project.id, null), /项目不存在/);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
 });
+
+test('insertion reorder preserves all records and rejects stale or duplicated project lists', t => {
+  const { store, project, file } = fixture(t);
+  const second = store.addSSH({ host: 'two', path: '/srv/two' }).project;
+  const third = store.addSSH({ host: 'three', path: '/srv/three' }).project;
+  store.complete(project.id, 'pending-turn');
+  store.reorderProjects([second.id, third.id, project.id]);
+  assert.deepEqual(new WorkspaceStore(file).projects.map(item => item.id), [second.id, third.id, project.id]);
+  assert.equal(store.projects[2], project); assert.equal(project.unread, 1);
+  for (const order of [[second.id, project.id], [second.id, project.id, project.id], [second.id, third.id, 'missing'], null]) assert.throws(() => store.reorderProjects(order), /项目列表已变化/);
+});

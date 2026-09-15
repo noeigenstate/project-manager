@@ -89,6 +89,13 @@ class WorkspaceStore {
     this.save();
   }
 
+  reorderProjects(ids) {
+    if (!Array.isArray(ids) || ids.length !== this.projects.length || new Set(ids).size !== ids.length || ids.some(id => typeof id !== 'string' || !this.projects.some(project => project.id === id))) throw new Error('项目列表已变化，请重新拖动排序。');
+    const records = new Map(this.projects.map(project => [project.id, project]));
+    this.projects = ids.map(id => records.get(id));
+    this.save();
+  }
+
   complete(id, eventId, now = Date.now()) {
     const project = this.projects.find(p => p.id === id);
     if (!project || typeof eventId !== 'string' || !eventId || eventId.length > 256 || project.seenEvents.includes(eventId)) return false;

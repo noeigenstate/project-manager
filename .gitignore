@@ -7,4 +7,5 @@ docs/overview.png
 docs/project-view.png
 test-results/
 integration/ssh-askpass.exe
+integration/file-clipboard.exe
 __pycache__/
