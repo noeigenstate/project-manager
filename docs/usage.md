@@ -8,7 +8,7 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 
 从 [Releases](https://github.com/noeigenstate/project-manager/releases/latest) 下载 Windows `.exe` 即可使用。正式版本在 Releases 中长期保留，普通 CI 构建仍可从 Actions 的 Artifacts 下载。
 
-打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.2.7-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.2.7-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
+打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.2.8-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.2.8-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
 
 ## 自动更新
 
@@ -151,7 +151,7 @@ npm run dist
 - 桌面回归测试会实际点击「启动终端」，覆盖网格和全屏，确认按键不被遮挡，再检查真实 PowerShell 与 Codex CLI 启动。
 - Codex 检查只运行版本和配置命令，不调用模型，不需要 API 密钥或 ChatGPT 登录。
 - 构建通过后，在对应运行的 **Artifacts** 中下载 **Project-Grid-windows-x64**，解压后双击 `.exe`。产物保留 30 天；测试截图保留 7 天。
-- 推送与 `package.json` 一致的版本标签（如 `v0.2.7`）时，构建与测试通过后会自动创建 GitHub Release，附上两个 `.exe`、`latest.yml`、`.blockmap`、SHA-256 校验文件和构建信息；普通 `main` 推送只生成 Artifacts。
+- 推送与 `package.json` 一致的版本标签（如 `v0.2.8`）时，构建与测试通过后会自动创建 GitHub Release，附上两个 `.exe`、`latest.yml`、`.blockmap`、SHA-256 校验文件和构建信息；普通 `main` 推送只生成 Artifacts。
 - 发布任务会重新校验下载产物，只为发布阶段申请仓库写权限。已发布的版本不会被重跑任务覆盖；预发布版本会标为 prerelease。
 - GitHub Packages 面向 npm、NuGet、容器等软件包；本项目以 Windows 可执行文件交付，下载入口是 Releases。
 

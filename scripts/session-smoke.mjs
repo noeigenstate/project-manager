@@ -76,7 +76,7 @@ const clipboardText = () => application.evaluate(({ clipboard }) => clipboard.re
 const setClipboard = text => application.evaluate(async ({ clipboard }, text) => { globalThis.testClipboardLast = text; await clipboard.writeText(text); }, text);
 async function backupClipboard() {
   await application.evaluate(async ({ clipboard, ClipboardItem }) => {
-    globalThis.testClipboardBackup = await Promise.all((await clipboard.read()).map(async item => new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)]))))));
+    globalThis.testClipboardBackup = await Promise.all((await clipboard.read()).filter(item => item.types.length).map(async item => new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)]))))));
   });
 }
 async function restoreClipboard() {
