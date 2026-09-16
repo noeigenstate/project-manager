@@ -8,7 +8,7 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 
 从 [Releases](https://github.com/noeigenstate/project-manager/releases/latest) 下载 Windows `.exe` 即可使用。正式版本在 Releases 中长期保留，普通 CI 构建仍可从 Actions 的 Artifacts 下载。
 
-打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.3.6-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.3.6-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
+打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.3.7-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.3.7-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
 
 安装版使用独立的 Windows 应用标识，开始菜单登记为 **Project Grid**，可在 Windows 搜索中查找。桌面、任务栏和搜索使用多尺寸的项目矩阵图标。启动时会修复本应用的快捷方式，并把早期与正式版标识冲突的开发版 Electron 快捷方式备份到应用数据目录；开发和测试窗口不再复用正式版标识。
 
