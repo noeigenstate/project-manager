@@ -56,7 +56,11 @@ export function useExplorerFileActions(project: Project, changed: (directory?: s
   const folder = (entry: FileEntry) => entry.kind === 'directory' || !entry.path ? entry.path : parentOf(entry.path);
   const targets = (entry: FileEntry) => selected.includes(entry.path) ? selected : [entry.path];
   const copy = (paths: string[]) => run(async () => { const result = await unwrap(window.projectGrid.copyEntries(project.id, paths)); setMessage(`已复制 ${result.count} 项，可粘贴到其他位置`); });
-  const paste = (directory: string) => run(async () => { const result = await unwrap(window.projectGrid.pasteEntries(project.id, directory)); setSelected(result.pasted); changed(directory); });
+  const paste = (directory: string) => run(async () => {
+    const result = await unwrap(window.projectGrid.pasteEntries(project.id, directory));
+    setSelected(result.pasted); anchor.current = result.pasted[0] || directory;
+    changed(directory); setMessage(`已粘贴 ${result.pasted.length} 项到${directory || '项目根目录'}`);
+  });
   const remove = (paths: string[]) => run(async () => { const result = await unwrap(window.projectGrid.deleteEntries(project.id, paths)); removed(result.deleted); setSelected([]); });
   const choose = (entry: FileEntry, event: MouseEvent) => {
     if (event.shiftKey) {
@@ -72,10 +76,17 @@ export function useExplorerFileActions(project: Project, changed: (directory?: s
     window.projectGrid.fileTreeFocus(project.id, true);
     setMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 210)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 285)), entry, targets: paths });
   };
+  const backgroundEntry = (event: MouseEvent) => entryFor((event.target as Element).closest<HTMLElement>('[data-directory-path]')?.dataset.directoryPath || '');
+  const onBackgroundClick = (event: MouseEvent) => {
+    if ((event.target as Element).closest('button')) return;
+    const entry = backgroundEntry(event);
+    setSelected([entry.path]); anchor.current = entry.path; tree.current?.focus();
+  };
+  const onBackgroundContextMenu = (event: MouseEvent) => { contextMenu(backgroundEntry(event), event); tree.current?.focus(); };
   const onKeyDown = (event: KeyboardEvent) => {
-    const entry = focused(); const control = event.ctrlKey || event.metaKey;
-    if (control && event.key.toLowerCase() === 'c') { event.preventDefault(); event.stopPropagation(); const text = window.getSelection()?.toString(); if (text) void window.projectGrid.copy(text); else void copy(targets(entry)); }
-    else if (control && event.key.toLowerCase() === 'v') { event.preventDefault(); event.stopPropagation(); void paste(folder(entry)); }
+    const entry = menu?.entry || focused(); const control = event.ctrlKey || event.metaKey;
+    if (control && (event.key.toLowerCase() === 'c' || event.key === 'Insert')) { event.preventDefault(); event.stopPropagation(); const text = window.getSelection()?.toString(); if (text) void window.projectGrid.copy(text); else void copy(targets(entry)); }
+    else if ((control && event.key.toLowerCase() === 'v') || (event.shiftKey && event.key === 'Insert')) { event.preventDefault(); event.stopPropagation(); void paste(folder(entry)); }
     else if (control && event.key.toLowerCase() === 'a') { event.preventDefault(); event.stopPropagation(); setSelected(rows().map(row => row.dataset.nodePath!).filter(Boolean)); }
     else if (event.key === 'Delete' && entry.path) { event.preventDefault(); event.stopPropagation(); void remove(targets(entry)); }
     else if (event.key === 'F2' && entry.path) { event.preventDefault(); event.stopPropagation(); setEdit({ kind: 'rename', directory: parentOf(entry.path), entry }); }
@@ -98,5 +109,5 @@ export function useExplorerFileActions(project: Project, changed: (directory?: s
   </div>, document.body)}{edit && <EditDialog edit={edit} save={save} close={() => setEdit(null)} />}</>;
   const status = progress?.projectId === project.id ? <div className="explorer-file-status" role="status"><SpinnerGap className="loading-spinner" size={14} /><span>{progress.text}</span><button className="icon-button" aria-label="取消文件操作" onClick={() => void window.projectGrid.cancelFileOperation()}><X size={13} /></button></div>
     : message ? <div className="explorer-file-status" role="status">{message}</div> : null;
-  return { tree, selected: new Set(selected), choose, contextMenu, onKeyDown, openCreate, overlays, status };
+  return { tree, selected: new Set(selected), choose, contextMenu, onKeyDown, openCreate, onBackgroundClick, onBackgroundContextMenu, pasteHere: () => void paste(folder(focused())), overlays, status };
 }

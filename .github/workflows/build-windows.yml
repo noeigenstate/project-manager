@@ -96,6 +96,9 @@ jobs:
       - name: Verify session recovery, clipboard and SSH desktop interaction
         run: npm run test:sessions -- --packaged
 
+      - name: Verify animated project expansion and return
+        run: npm run test:motion -- --packaged
+
       - name: Verify file operations and microphone UI with isolated test devices
         run: npm run test:workspace -- --packaged
 
@@ -153,6 +156,7 @@ jobs:
             .test-output/desktop-*/*.png
             .test-output/sessions-*/*.png
             .test-output/workspace-*/*.png
+            .test-output/focus-motion-*/*.png
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7

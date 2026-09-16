@@ -2,7 +2,7 @@ import { useEffect, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   ArrowLeft, ArrowSquareOut, ArrowsInLineVertical, ArrowClockwise, BracketsCurly,
   CaretDown, CaretRight, CheckCircle, File, FileCode, FileText, Folder, FolderOpen,
-  GearSix, LinkSimple, SidebarSimple, SpinnerGap, Image as ImageIcon, FilmStrip, FilePlus, FolderPlus,
+  GearSix, LinkSimple, SidebarSimple, SpinnerGap, Image as ImageIcon, FilmStrip, FilePlus, FolderPlus, Clipboard,
 } from '@phosphor-icons/react';
 import type { DirectoryListing, FileEntry, Project } from './types';
 import { useExplorerFileActions } from './ExplorerFileActions';
@@ -79,7 +79,7 @@ function TreeNode(props: NodeProps) {
     return () => { active = false; };
   }, [projectId, entry.path, open, enabled, revision, pages]);
 
-  return <div className="tree-node">
+  return <div className="tree-node" data-directory-path={isDirectory ? entry.path : undefined}>
     <button className={`tree-row ${root ? 'tree-root' : ''} ${selected.has(entry.path) || !selected.size && !isDirectory && selectedFile === entry.path ? 'file-selected' : ''}`}
       role="treeitem" aria-expanded={isDirectory ? open : undefined} aria-selected={selected.has(entry.path)}
       aria-level={depth + 1} aria-label={entry.name} title={entry.path || entry.name} data-node-path={entry.path} data-node-kind={entry.kind}
@@ -129,8 +129,8 @@ export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFil
       <button className="icon-button sidebar-toggle" onClick={onCollapse} title={collapsed ? '展开目录栏 · Ctrl+B' : '收起目录栏 · Ctrl+B'} aria-label={collapsed ? '展开目录栏' : '收起目录栏'} aria-expanded={!collapsed}><SidebarSimple size={18} /></button>
     </div>
     <div className="explorer-content" hidden={collapsed}>
-      <div className="explorer-toolbar" onPointerDown={() => window.projectGrid.fileTreeFocus(project.id, false)}><div className="explorer-heading"><span>资源管理器</span><span className="explorer-path" title={location}>{location}</span></div><div className="explorer-tools"><button className="icon-button" aria-label="新建文件" title="新建文件" onClick={() => files.openCreate('file')}><FilePlus size={15} /></button><button className="icon-button" aria-label="新建文件夹" title="新建文件夹" onClick={() => files.openCreate('directory')}><FolderPlus size={15} /></button><button className="icon-button" aria-label="刷新项目目录" title="刷新项目目录" onClick={() => setRevision(r => r + 1)}><ArrowClockwise size={15} /></button><button className="icon-button" aria-label="折叠所有文件夹" title="折叠所有文件夹" onClick={() => onExpandedChange([''])}><ArrowsInLineVertical size={15} /></button></div></div>
-      <div ref={files.tree} className="file-tree" role="tree" aria-multiselectable="true" aria-label={`${project.name} 的文件目录`} onKeyDownCapture={files.onKeyDown}
+      <div className="explorer-toolbar" onPointerDown={() => window.projectGrid.fileTreeFocus(project.id, false)}><div className="explorer-heading"><span>资源管理器</span><span className="explorer-path" title={location}>{location}</span></div><div className="explorer-tools"><button className="icon-button" aria-label="粘贴文件" title="粘贴到选中目录 · Ctrl+V" onClick={files.pasteHere}><Clipboard size={15} /></button><button className="icon-button" aria-label="新建文件" title="新建文件" onClick={() => files.openCreate('file')}><FilePlus size={15} /></button><button className="icon-button" aria-label="新建文件夹" title="新建文件夹" onClick={() => files.openCreate('directory')}><FolderPlus size={15} /></button><button className="icon-button" aria-label="刷新项目目录" title="刷新项目目录" onClick={() => setRevision(r => r + 1)}><ArrowClockwise size={15} /></button><button className="icon-button" aria-label="折叠所有文件夹" title="折叠所有文件夹" onClick={() => onExpandedChange([''])}><ArrowsInLineVertical size={15} /></button></div></div>
+      <div ref={files.tree} className="file-tree" role="tree" tabIndex={0} aria-multiselectable="true" aria-label={`${project.name} 的文件目录`} onKeyDownCapture={files.onKeyDown} onClick={files.onBackgroundClick} onContextMenu={files.onBackgroundContextMenu}
         onFocusCapture={() => window.projectGrid.fileTreeFocus(project.id, true)} onBlurCapture={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) window.projectGrid.fileTreeFocus(project.id, false); }}>
         <TreeNode projectId={project.id} entry={{ name: project.name, path: '', kind: 'directory' }} depth={0} expanded={expanded} revision={revision} enabled={!collapsed} selectedFile={selectedFile} onToggle={toggle} onSelect={onSelectFile} selected={files.selected} choose={files.choose} contextMenu={files.contextMenu} />
       </div>

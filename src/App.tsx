@@ -12,6 +12,7 @@ import { FilePreview } from './FilePreview';
 import { AddProjectDialog } from './AddProjectDialog';
 import { SSHAuthDialog } from './SSHAuthDialog';
 import { useProjectReorder } from './useProjectReorder';
+import { useProjectFocusMotion } from './useProjectFocusMotion';
 const VoiceDialog = lazy(() => import('./VoiceDialog').then(module => ({ default: module.VoiceDialog })));
 
 const api = window.projectGrid;
@@ -168,7 +169,7 @@ export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [updates, setUpdates] = useState<AppUpdateState | null>(null);
   const [query, setQuery] = useState('');
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const { root: focusMotionRoot, focusedId, focus: setFocusedId } = useProjectFocusMotion();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -196,8 +197,8 @@ export function App() {
     setFocusedId(id);
     api.focusMode(true);
     perform(api.acknowledge(id));
-  }, [perform]);
-  const returnToGrid = useCallback(() => { setFocusedId(null); setPreviewFile(null); api.focusMode(false); }, []);
+  }, [perform, setFocusedId]);
+  const returnToGrid = useCallback(() => { setFocusedId(null); setPreviewFile(null); api.focusMode(false); }, [setFocusedId]);
   const openTerminalLink = useCallback(async (id: string, target: string) => {
     const result = await perform(api.openLink(id, target));
     if (result?.kind === 'file') {
@@ -250,7 +251,7 @@ export function App() {
   };
   const setPreference = (patch: Partial<Settings>) => { perform(api.settings(patch)); };
 
-  return <div className={`app-shell ${focusedId ? 'focus-mode' : ''}`}>
+  return <div ref={focusMotionRoot} className={`app-shell ${focusedId ? 'focus-mode' : ''}`}>
     <div className="titlebar">
       <div className="titlebar-brand"><span className="brand-mark"><i /><i /><i /><i /></span><span>Project Grid</span><span className="titlebar-divider" /> <span className="titlebar-subtitle">项目矩阵</span></div>
       <div className="titlebar-space" />

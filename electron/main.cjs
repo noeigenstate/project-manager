@@ -558,7 +558,7 @@ else {
     window.webContents.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown' || activeTerminal || input.alt) return;
       const key = input.key.toLowerCase();
-      if (activeFileTree && (((input.control || input.meta) && ['a', 'c', 'v'].includes(key)) || ['delete', 'f2'].includes(key))) return;
+      if (activeFileTree && (((input.control || input.meta) && ['a', 'c', 'v'].includes(key)) || ['delete', 'f2'].includes(key) || (key === 'insert' && (input.control || input.shift)))) return;
       let action;
       if (input.control || input.meta) action = { c: 'copy', x: 'cut', v: input.shift ? 'pasteAndMatchStyle' : 'paste', a: 'selectAll', z: input.shift ? 'redo' : 'undo', y: 'redo', insert: 'copy' }[key];
       else if (input.shift && key === 'insert') action = 'paste';
