@@ -39,7 +39,13 @@ export function useExplorerFileActions(project: Project, changed: (directory?: s
   useEffect(() => {
     if (!menu) return;
     const dismiss = (event: PointerEvent) => { if (!menuElement.current?.contains(event.target as Node)) setMenu(null); };
-    document.addEventListener('pointerdown', dismiss); return () => document.removeEventListener('pointerdown', dismiss);
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault(); event.stopPropagation(); setMenu(null); tree.current?.focus();
+    };
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', escape, true);
+    return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape, true); };
   }, [menu]);
   useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(''), 5000); return () => clearTimeout(timer); }, [message]);
   const unwrap = async <T,>(promise: Promise<Result<T>>) => { const result = await promise; if (!result.ok) throw new Error(result.error); return result.value; };

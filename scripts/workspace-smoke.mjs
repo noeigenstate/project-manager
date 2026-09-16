@@ -115,7 +115,11 @@ try {
   await page.getByRole('treeitem', { name: 'renamed.txt', exact: true }).click(); await page.keyboard.press('Delete');
   await waitFor(async () => { try { await fs.stat(path.join(project.path, 'renamed.txt')); return false; } catch { return true; } }, 'delete moves file out of project');
   await page.locator('[data-node-path="external.txt"]').click({ button: 'right' });
-  await page.screenshot({ path: path.join(output, 'file-actions.png') }); await page.keyboard.press('Escape');
+  await page.screenshot({ path: path.join(output, 'file-actions.png') });
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('Escape');
+  await page.getByRole('menu', { name: '文件操作', exact: true }).waitFor({ state: 'detached', timeout: 5000 });
+  assert.equal(await tree.evaluate(element => element === document.activeElement), true, 'Escape closes the menu even without tree focus, then returns keyboard focus');
   await page.getByRole('treeitem', { name: 'microphone-check.html', exact: true }).click();
   const isolated = page.frameLocator('iframe[title="HTML 页面预览"]');
   await isolated.getByRole('button', { name: 'Check microphone' }).click(); await isolated.getByText('BLOCKED', { exact: true }).waitFor();
