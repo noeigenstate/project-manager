@@ -5,7 +5,7 @@ type Flight = { id: string; from: Bounds; opening: boolean };
 
 // Move the real panel between layouts. Keeping the terminal mounted preserves
 // its PTY, input, selection and live output throughout the transition.
-export function useProjectFocusMotion() {
+export function useProjectFocusMotion(mode: 'smooth' | 'system' | 'off') {
   const root = useRef<HTMLDivElement>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const currentId = useRef<string | null>(null);
@@ -24,11 +24,12 @@ export function useProjectFocusMotion() {
     if (!currentId.current && area) overviewScroll.current = { top: area.scrollTop, left: area.scrollLeft };
     // A quick return starts at the current animated bounds, without snapping.
     stop.current?.();
-    pending.current = id && from && from.width > 0 && from.height > 0 && !matchMedia('(prefers-reduced-motion: reduce)').matches
+    const animate = mode === 'smooth' || mode === 'system' && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    pending.current = id && from && from.width > 0 && from.height > 0 && animate
       ? { id, from, opening: !!nextId } : null;
     currentId.current = nextId;
     setFocusedId(nextId);
-  }, []);
+  }, [mode]);
 
   useLayoutEffect(() => {
     const shell = root.current;
@@ -96,7 +97,7 @@ export function useProjectFocusMotion() {
       // visible zoom and turn the remaining motion into an abrupt snap.
       animate(panel.getBoundingClientRect(), Math.max(flight.opening ? 380 : 280, deadline - performance.now()));
     };
-    const onPreference = () => { if (reduced.matches) clear(); };
+    const onPreference = () => { if (mode === 'system' && reduced.matches) clear(); };
     const observer = new ResizeObserver(retarget);
     stop.current = clear;
     animate(flight.from, duration);
@@ -117,7 +118,7 @@ export function useProjectFocusMotion() {
       }
     }
     return clear;
-  }, [focusedId]);
+  }, [focusedId, mode]);
 
   useEffect(() => () => stop.current?.(), []);
   return { root, focusedId, focus };

@@ -6,7 +6,7 @@ export type Project = {
   sessionId: string | null; status: 'stopped' | 'starting' | 'shell' | 'codex' | 'exited';
   codexActive: boolean; shellReady: boolean; codexAvailable: boolean | null; error: string | null;
 };
-export type Settings = { columns: number; notifications: boolean; sound: boolean; closeToTray: boolean; explorerCollapsed: boolean; fontSize: number; restoreSessions: boolean };
+export type Settings = { columns: number; notifications: boolean; sound: boolean; closeToTray: boolean; explorerCollapsed: boolean; fontSize: number; restoreSessions: boolean; focusAnimation: 'smooth' | 'system' | 'off' };
 export type SSHInfo = { hosts: string[]; configFile: string; configExists: boolean; sshPath: string; source: string };
 export type SSHAuthPrompt = { id: string; host: string; message: string; kind: 'secret' | 'confirm' };
 export type Workspace = { projects: Project[]; settings: Settings; warning: string | null; platform: string; version: string };

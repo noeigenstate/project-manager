@@ -20,6 +20,46 @@ function materializeIcon(iconSource, userData) {
   return icon;
 }
 
+function refreshSearchIcons({ localAppData, userData, iconSource }) {
+  const changes = [], warnings = [];
+  if (!localAppData) return { changes, warnings };
+  const revision = createHash('sha256').update(fs.readFileSync(iconSource)).digest('hex');
+  const marker = path.join(userData, 'shell-icons', 'search-cache-v1.json');
+  try { if (JSON.parse(fs.readFileSync(marker, 'utf8')).revision === revision) return { changes, warnings }; } catch {}
+  const packages = path.resolve(localAppData, 'Packages');
+  // Search keeps a separate icon bitmap keyed by AppUserModelID. Updating a
+  // shortcut or refreshing Explorer does not invalidate this bitmap.
+  const ownedNames = new Set([APP_ID, `${APP_ID}.portable`].map(id => id.replaceAll('.', '_')));
+  try {
+    for (const entry of fs.readdirSync(packages, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !/^Microsoft\.Windows\.(Search|Cortana)_[a-z0-9]+$/i.test(entry.name)) continue;
+      const cache = path.join(packages, entry.name, 'LocalState', 'AppIconCache');
+      if (!fs.existsSync(cache)) continue;
+      for (const scale of fs.readdirSync(cache, { withFileTypes: true })) {
+        if (!scale.isDirectory() || !/^\d+$/.test(scale.name)) continue;
+        for (const name of ownedNames) {
+          const source = path.resolve(cache, scale.name, name);
+          if (!source.startsWith(cache + path.sep) || !fs.existsSync(source)) continue;
+          const backupFolder = path.join(userData, 'shortcut-backups', 'search-icons');
+          const backup = path.join(backupFolder, `${entry.name}-${scale.name}-${name}-${Date.now()}`);
+          try {
+            if (!fs.lstatSync(source).isFile()) continue;
+            fs.mkdirSync(backupFolder, { recursive: true });
+            fs.copyFileSync(source, backup, fs.constants.COPYFILE_EXCL);
+            fs.unlinkSync(source);
+            changes.push({ action: 'refresh-search-icon', source, backup });
+          } catch (error) { warnings.push(String(error.message)); }
+        }
+      }
+    }
+  } catch (error) { if (error.code !== 'ENOENT') warnings.push(String(error.message)); }
+  if (!warnings.length) {
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    fs.writeFileSync(marker, JSON.stringify({ revision }));
+  }
+  return { changes, warnings };
+}
+
 function repairShortcuts({ shell, executable, iconSource, userData, programs, commonPrograms, desktop, commonDesktop, createDesktop = false }) {
   const changes = [], warnings = [];
   const icon = materializeIcon(iconSource, userData);
@@ -57,4 +97,4 @@ function repairShortcuts({ shell, executable, iconSource, userData, programs, co
   return { icon, changes, warnings };
 }
 
-module.exports = { APP_ID, APP_NAME, windowsAppId, materializeIcon, repairShortcuts };
+module.exports = { APP_ID, APP_NAME, windowsAppId, materializeIcon, repairShortcuts, refreshSearchIcons };

@@ -20,7 +20,7 @@ const { RemoteConnection } = require('./remote-connection.cjs');
 const { recentSession, resumeCommand } = require('./session-restore.cjs');
 const { FileOperations } = require('./file-operations.cjs');
 const { VoiceManager } = require('./voice.cjs');
-const { windowsAppId, materializeIcon, repairShortcuts } = require('./windows-integration.cjs');
+const { windowsAppId, materializeIcon, repairShortcuts, refreshSearchIcons } = require('./windows-integration.cjs');
 
 const root = path.join(__dirname, '..');
 const integrationDir = app.isPackaged ? path.join(process.resourcesPath, 'integration') : path.join(root, 'integration');
@@ -522,6 +522,12 @@ else {
         shellIcon = repaired.icon;
         if (repaired.changes.length) execFile(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/ie4uinit.exe'), ['-show'], { windowsHide: true, timeout: 5000 }, () => {});
       } catch (error) { console.warn('Windows shortcut repair:', error.message); }
+    }
+    if (process.platform === 'win32' && app.isPackaged && !process.env.PROJECT_GRID_DATA_DIR) {
+      try {
+        const refreshed = refreshSearchIcons({ localAppData: process.env.LOCALAPPDATA, userData: app.getPath('userData'), iconSource: shellIcon });
+        if (refreshed.changes.length) execFile(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/ie4uinit.exe'), ['-show'], { windowsHide: true, timeout: 5000 }, () => {});
+      } catch (error) { console.warn('Windows Search icon refresh:', error.message); }
     }
     store = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace.json'));
     voiceManager = new VoiceManager({ directory: path.join(app.getPath('userData'), 'voice'), fetcher: (url, options) => electronNet.fetch(url, options), changed: state => send('voice:state', state) });

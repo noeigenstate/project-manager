@@ -212,7 +212,9 @@ jobs:
           - Multiple project terminals with completion alerts.
           - Fullscreen project view, collapsible file explorer, and frosted glass interface.
           - Click the top header or expand button to zoom in gradually; terminal input, output and footer clicks stay in the small card.
+          - Smooth zoom is enabled by default even when Windows reduces system animations; Settings offers Smooth, Follow system and Off. Installer tests use the real OS preference.
           - Installed, development and test builds use separate Windows identities; branded multi-size icons and repaired Start menu shortcuts prevent Electron entries from replacing Project Grid in Windows search.
+          - Refresh Project Grid's stale Windows Search icon cache so Win+Q recent apps uses the branded icon too.
           - Compact top titlebar, brighter text and Ctrl-click terminal links.
           - Inline image and video viewing, large text pages and isolated HTML previews.
           - The installed edition downloads updates in the background. Restart and install from Settings when your tasks are finished.

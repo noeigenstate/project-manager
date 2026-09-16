@@ -39,6 +39,9 @@ async function landed(id) {
 try {
   application = await electron.launch({ executablePath: actualExecutable || (packaged ? path.join(root, 'release/win-unpacked/Project Grid.exe') : require('electron')), args: actualExecutable || packaged ? [] : [root], cwd: root, env, timeout: 30000 });
   page = await application.firstWindow(); page.on('pageerror', error => errors.push(error.message));
+  // Playwright defaults to no-preference even without an explicit override.
+  // null restores the real Windows setting used by the installed application.
+  await page.emulateMedia({ reducedMotion: null });
   await application.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0]; window.setBounds({ x: 40, y: 40, width: 1180, height: 780 }); window.focus();
   });
@@ -164,11 +167,33 @@ try {
   console.log('PASS: quick reversal, another card, file preview return and window resize leave no floating or hidden cards');
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  await panel.locator('.panel-name').click();
+  await page.waitForSelector('.focus-motion-panel');
+  await settled(true); await landed(id);
+  await page.getByRole('button', { name: '返回总览', exact: true }).click(); await settled(false);
+  console.log('PASS: default smooth zoom remains enabled when Windows reduces system animations');
+
+  await page.getByRole('button', { name: '工作台设置', exact: true }).click();
+  await page.getByLabel('窗口放大动画', { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, 'motion-settings.png') });
+  await page.getByLabel('窗口放大动画', { exact: true }).selectOption('system');
+  await page.getByRole('button', { name: '关闭设置', exact: true }).click();
   await panel.locator('.panel-name').click(); await settled(true);
   assert.equal(await page.locator('.focus-motion-panel').count(), 0);
   await page.getByRole('button', { name: '返回总览', exact: true }).click(); await settled(false);
   await landed(id); assert.deepEqual(errors, []);
-  console.log('PASS: reduced motion switches directly without a zoom animation');
+  console.log('PASS: choosing follow-system respects reduced motion');
+
+  await page.getByRole('button', { name: '工作台设置', exact: true }).click();
+  await page.getByLabel('窗口放大动画', { exact: true }).selectOption('off');
+  await page.getByRole('button', { name: '关闭设置', exact: true }).click();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await panel.locator('.panel-name').click(); await settled(true);
+  assert.equal(await page.locator('.focus-motion-panel').count(), 0);
+  await page.getByRole('button', { name: '返回总览', exact: true }).click(); await settled(false);
+  const persisted = JSON.parse(await fs.readFile(path.join(dataDir, 'workspace.json'), 'utf8'));
+  assert.equal(persisted.settings.focusAnimation, 'off');
+  console.log('PASS: animation can be disabled and the preference persists');
   console.log(`Screenshots: ${output}`);
 } catch (error) {
   console.error(error); process.exitCode = 1;

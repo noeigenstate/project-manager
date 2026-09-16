@@ -143,6 +143,7 @@ function SettingsDialog({ settings, updates, onCheckUpdate, onInstallUpdate, onD
       <label className="setting-row"><span><SpeakerHigh size={19} /><span><b>通知声音</b><small>播放系统默认提示音</small></span></span><input type="checkbox" checked={settings.sound} onChange={e => update({ sound: e.target.checked })} /></label>
       <label className="setting-row"><span><Monitor size={19} /><span><b>关闭到托盘</b><small>关闭窗口后，终端和任务继续运行</small></span></span><input type="checkbox" checked={settings.closeToTray} onChange={e => update({ closeToTray: e.target.checked })} /></label>
       <label className="setting-row"><span><TerminalIcon size={19} /><span><b>终端字号</b><small>全屏与网格共用字号</small></span></span><select aria-label="终端字号" value={settings.fontSize} onChange={e => update({ fontSize: Number(e.target.value) })}>{[10, 11, 12, 13, 14, 16, 18, 20].map(n => <option key={n} value={n}>{n} px</option>)}</select></label>
+      <label className="setting-row"><span><ArrowsOutSimple size={19} /><span><b>窗口放大动画</b><small>点击标题栏平滑展开，返回时缩回原位</small></span></span><select aria-label="窗口放大动画" value={settings.focusAnimation} onChange={e => update({ focusAnimation: e.target.value as Settings['focusAnimation'] })}><option value="smooth">平滑缩放</option><option value="system">跟随系统</option><option value="off">关闭</option></select></label>
       <label className="setting-row"><span><ArrowCounterClockwise size={19} /><span><b>启动时恢复工作</b><small>恢复最近会话，被中断的任务自动发送“继续”</small></span></span><input type="checkbox" checked={settings.restoreSessions} onChange={event => update({ restoreSessions: event.target.checked })} /></label>
       <div className="setting-row"><span><Microphone size={19} /><span><b>本地语音输入</b><small>检测麦克风，下载离线识别模型</small></span></span><button className="button secondary small" onClick={onVoice}>语音设置</button></div>
       {updates && <section className="update-section" aria-label="应用更新">
@@ -169,7 +170,7 @@ export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [updates, setUpdates] = useState<AppUpdateState | null>(null);
   const [query, setQuery] = useState('');
-  const { root: focusMotionRoot, focusedId, focus: setFocusedId } = useProjectFocusMotion();
+  const { root: focusMotionRoot, focusedId, focus: setFocusedId } = useProjectFocusMotion(workspace?.settings.focusAnimation || 'smooth');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
