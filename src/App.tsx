@@ -37,7 +37,7 @@ function statusText(project: Project) {
   if (project.done) return '开发完成';
   if (project.unread) return '等待你查看';
   if (project.error) return '需要检查';
-  if (project.status === 'codex') return 'Codex 会话中';
+  if (project.status === 'codex') return project.awaitingCompletion ? '正在处理' : project.lastCompletedAt ? '本轮已完成' : '等待指令';
   if (project.status === 'shell') return '终端就绪';
   if (project.status === 'starting') return project.kind === 'ssh' ? '正在连接 SSH' : '正在启动';
   if (project.status === 'exited') return project.kind === 'ssh' ? 'SSH 终端已退出' : '终端已退出';
@@ -58,6 +58,10 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   const stopped = project.status === 'stopped' || project.status === 'exited';
   const completionAge = project.lastCompletedAt === null ? Infinity : Date.now() - project.lastCompletedAt;
   const freshCompletion = !!project.unread && !project.done && completionAge >= 0 && completionAge < 9000;
+  const working = project.codexActive && project.awaitingCompletion && !project.unread && !project.done && !project.error;
+  const roundComplete = project.codexActive && !project.awaitingCompletion && !!project.lastCompletedAt && !project.unread && !project.done && !project.error;
+  const badgeClass = `status-badge ${project.done || roundComplete ? 'green' : project.unread ? 'red' : project.error ? 'amber' : working ? 'blue' : ''}`;
+  const badge = <><span className="status-dot" aria-hidden="true" /><span>{statusText(project)}</span></>;
   useEffect(() => {
     if (!menuOpen) return;
     const dismiss = (event: PointerEvent) => { if (!menu.current?.contains(event.target as Node)) setMenuOpen(false); };
@@ -66,13 +70,14 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   }, [menuOpen]);
   const action = (callback: () => void) => { setMenuOpen(false); callback(); };
   return <article
-    className={`project-panel ${project.unread && !project.done ? 'has-unread' : ''} ${freshCompletion ? 'attention-active' : ''} ${project.done ? 'is-done' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''} ${dragging ? 'drag-source' : ''} ${dropTarget ? 'drop-target' : ''}`}
+    className={`project-panel ${project.unread && !project.done ? 'has-unread' : ''} ${freshCompletion ? 'attention-active' : ''} ${project.done ? 'is-done' : ''} ${working ? 'is-working' : ''} ${roundComplete ? 'round-complete' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''} ${dragging ? 'drag-source' : ''} ${dropTarget ? 'drop-target' : ''}`}
     data-project-id={project.id} data-status={project.done ? 'done' : project.unread ? 'unread' : project.status}
     style={{ display: hidden ? 'none' : undefined }}
     onClick={event => {
       if (!focused && project.unread && !event.ctrlKey && !(event.target as Element).closest('button, input, [role="menu"], .terminal-host[data-has-selection="true"]')) onFocus(project.id);
     }}
   >
+    {(project.unread || project.done || working || roundComplete) && <><span className="panel-edge-light edge-start" aria-hidden="true" /><span className="panel-edge-light edge-end" aria-hidden="true" /></>}
     <header className="panel-header" title={focused ? undefined : '按住标题区域拖动排序，其他项目会自动让位'}>
       <span className="panel-index">{String(index + 1).padStart(2, '0')}</span>
       <button className="panel-name" onClick={() => !focused && onFocus(project.id)} title={project.kind === 'ssh' ? `${project.ssh?.host}:${project.path}` : project.path}>
@@ -80,10 +85,9 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
         {project.branch && <small><GitBranch size={11} />{project.branch}</small>}
         {project.kind === 'ssh' && <small className="ssh-project-label"><Globe size={11} />{project.ssh?.host}</small>}
       </button>
-      <span className={`status-badge ${project.done ? 'green' : project.unread ? 'red' : project.error ? 'amber' : project.codexActive ? 'blue' : ''}`}>
-        {project.done ? <CheckCircle size={13} weight="fill" /> : <span className="status-dot" />}
-        <span>{statusText(project)}</span>
-      </span>
+      {!!project.unread && !focused && !project.done
+        ? <button type="button" className={`${badgeClass} status-button`} onClick={() => onFocus(project.id)} aria-label={`查看 ${project.name} 的完成结果`}>{badge}</button>
+        : <span className={badgeClass}>{badge}</span>}
       {!focused && <IconButton label={`全屏查看 ${project.name}`} onClick={() => onFocus(project.id)}><ArrowsOutSimple size={16} /></IconButton>}
       <div className="panel-menu-anchor" ref={menu}>
         <IconButton label={`${project.name} 的更多操作`} onClick={() => setMenuOpen(!menuOpen)}><DotsThree size={20} weight="bold" /></IconButton>
@@ -105,9 +109,6 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
         <span>{project.done ? '需要继续时，随时启动终端' : '启动终端，在这里开始开发'}</span>
         <button className="button secondary small" onClick={() => onAction(api.startTerminal(project.id))}><Play size={13} weight="fill" />启动终端</button>
       </div>}
-      {!!project.unread && !focused && !project.done && <button className="attention-overlay" onClick={() => onFocus(project.id)} aria-label={`查看 ${project.name} 的完成结果`}>
-        <span className="attention-callout"><span className="attention-ping" /><span>本轮已完成，点击继续</span><ArrowsOutSimple size={14} /></span>
-      </button>}
     </div>
     {project.error && <div className="panel-error"><Info size={13} /><span>{project.error}</span></div>}
     <footer className="panel-footer">

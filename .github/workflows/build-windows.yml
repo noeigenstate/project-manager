@@ -99,6 +99,9 @@ jobs:
       - name: Verify animated project expansion and return
         run: npm run test:motion -- --packaged
 
+      - name: Verify completion notifications only rearm after new input
+        run: npm run test:completion -- --packaged
+
       - name: Verify file operations and microphone UI with isolated test devices
         run: npm run test:workspace -- --packaged
 
@@ -215,7 +218,8 @@ jobs:
           - Softer glass surfaces, luminous edges, rounded controls and readable terminal content, inspired by Liquid Glass.
           - Compact file explorer with native Windows file copy/paste, creation, renaming and deletion; SSH transfers are supported.
           - Microphone detection and offline speech-to-text with an optional first-time model download of about 64 MB.
-          - Completed turns briefly breathe, then remain as quiet red cards until viewed; idle windows do not repeat alerts.
+          - Completion alerts are rearmed only by a submitted instruction. Background callbacks with new IDs, focus changes and reopening completed history stay quiet; the one-alert state survives restarts.
+          - Luminous status dots, soft borders and edge lights show blue activity, pink attention and steady green completion; the floating terminal callout is removed.
           - Verified with packaged desktop tests, session restart checks, and real Linux SSH/PTY integration.
 
           Commit: $GITHUB_SHA

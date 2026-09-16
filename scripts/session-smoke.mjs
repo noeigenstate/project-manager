@@ -71,6 +71,9 @@ async function verifyResume() {
   assert.equal(await receipt(projects[2]), null);
   assert.equal(await receipt(projects[3]), null);
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects.filter(p => p.codexActive).length === 2, 'two active restored conversations');
+  const stored = JSON.parse(await fs.readFile(path.join(dataDir, 'workspace.json'), 'utf8'));
+  assert.equal(stored.projects.find(project => project.id === projects[0].id).completionArmed, true, 'automatic continuation arms a completion alert');
+  assert.equal(stored.projects.find(project => project.id === projects[1].id).completionArmed, false, 'opening completed history stays quiet');
 }
 const clipboardText = () => application.evaluate(({ clipboard }) => clipboard.readText());
 const setClipboard = text => application.evaluate(async ({ clipboard }, text) => { globalThis.testClipboardLast = text; await clipboard.writeText(text); }, text);

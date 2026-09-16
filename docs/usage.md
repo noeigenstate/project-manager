@@ -8,7 +8,7 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 
 从 [Releases](https://github.com/noeigenstate/project-manager/releases/latest) 下载 Windows `.exe` 即可使用。正式版本在 Releases 中长期保留，普通 CI 构建仍可从 Actions 的 Artifacts 下载。
 
-打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.3.1-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.3.1-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
+打包后的应用位于 `release/`。推荐运行 `Project-Grid-Setup-0.3.2-x64.exe` 安装，获得自动更新功能；`Project-Grid-0.3.2-win-x64.exe` 为便携版。迁移旧版时，先等任务结束，从设置或托盘退出旧版，再运行安装包。项目列表与完成标记会保留。
 
 ## 自动更新
 
@@ -113,8 +113,10 @@ Windows 多项目终端工作台。每个目录对应一个真实终端，Codex 
 | 绿色常亮 | 用户确认整个项目开发完成 | 通过「继续开发」取消完成标记 |
 | 黄色文字提示 | 终端启动失败或 Codex 非正常退出 | 查看真实终端输出，处理后重启 |
 
-红色状态不会因搜索、窗口失去焦点或关闭到托盘而消失。多个新完成事件会累计；相同 thread-id / turn-id 的重复事件不会重复提醒。一次新任务完成会将之前的绿色项目重新置为红色，避免漏掉后续运行的结果。
-每轮只提醒一次，呼吸光晕和任务栏闪动约 9 秒后停止；空闲项目保持静态红框，直到查看。只有新的完成事件会再次提示。
+红色状态不会因搜索、窗口失去焦点或关闭到托盘而消失。每次提交新指令后，只接受一次完成提醒；没有新提交时，后台返回不同 thread-id / turn-id 也不会重复提醒或累计未读。提交新任务后，其完成仍可把之前的绿色项目重新置为红色。
+呼吸光晕和任务栏闪动约 9 秒后停止，空闲项目保持静态红框直到查看。查看、切换窗口、终端刷新和重启软件不会重新启用旧提醒；输入但尚未发送的草稿也不会。自动恢复被打断的任务并发送“继续”时，允许新的完成提醒；只打开已完成的历史会话则保持安静。
+
+提醒使用右上角发光状态灯、柔和边框和侧边短光条；蓝色处理中的灯缓慢呼吸，粉色等待灯短暂呼吸后静止，绿色完成灯常亮。终端上的「本轮已完成，点击继续」悬浮条已移除，点击右上角等待状态或展开图标可进入项目。
 
 **Codex 会话中**表示 CLI 仍在终端里运行，不代表模型在每一秒都在生成。项目是否开发完成由人确认，不从 Codex 的回复文字推测。
 
@@ -155,6 +157,7 @@ npm run test:desktop
 npm run test:sessions
 npm run test:workspace
 npm run test:motion
+npm run test:completion
 npm run dist
 ```
 
@@ -165,6 +168,7 @@ npm run dist
 - `test:sessions`：用离线 Codex 替身验证两次启动恢复；检查输入框粘贴、终端复制/粘贴、SSH 认证弹窗和远程媒体预览。SSH 服务只监听本机随机端口，不连接日常远程主机。添加 `-- --packaged` 可检查打包版。
 - `test:workspace`：实际文件新建/重命名/删除、Windows 文件剪贴板与资源管理器粘贴，并用模拟麦克风测试检测、录音、编辑和插入。默认仅替换识别后端以便 CI 离线运行；传入 `-- --voice-assets 路径` 可使用真实 Whisper 引擎和模型测试全流程。资源目录需包含 `runtime/Release/whisper-cli.exe` 及 `ggml-base-q5_1.bin`。测试不使用真实麦克风，不向模型提交编码任务。
 - `test:motion`：检查真实卡片展开、缩回的中间尺寸、快速反向切换、窗口尺寸变化和减少动态效果，并验证同一终端及未发送输入得以保留。截图在 `.test-output/focus-motion-*/`，支持 `-- --packaged`。
+- `test:completion`：通过真实 PowerShell 通知钩子验证每次提交只通知一次，不同 ID 的后台事件、窗口协议消息、空回车、草稿和重启不重复提醒。系统通知会被测试计数器替代，不打扰日常工作区，支持 `-- --packaged`。
 - `node scripts/verify-update-artifacts.cjs`：校验安装包、SHA-512、更新清单和应用内置更新源。
 
 终端依赖锁定为 `node-pty@1.2.0-beta.15`，使用其随包提供的 ConPTY 1.25，修复旧版在窗口缩放后光标坐标不同步的问题。相关上游说明见 [microsoft/terminal#18725](https://github.com/microsoft/terminal/issues/18725)。渲染端同步启用光标所在行的重排，并在预览期间保持终端布局。

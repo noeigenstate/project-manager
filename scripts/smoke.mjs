@@ -171,14 +171,18 @@ try {
   const bootstraps = [];
   for (const filename of await fs.readdir(path.join(dataDir, runtime))) bootstraps.push(JSON.parse(await fs.readFile(path.join(dataDir, runtime, filename), 'utf8')));
   const info = bootstraps.find(b => b.projectId === projects[0].id);
-  const complete = async (turnId, target = info) => {
-    const payload = JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 'smoke-thread', 'turn-id': turnId, cwd: projects[0].path, 'last-assistant-message': '验证完成 "quotes" 中文' });
+  const complete = async (turnId, target = info, threadId = 'smoke-thread') => {
+    const payload = JSON.stringify({ type: 'agent-turn-complete', 'thread-id': threadId, 'turn-id': turnId, cwd: projects[0].path, 'last-assistant-message': '验证完成 "quotes" 中文' });
     await exec(target.powershellPath, ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', target.notifyPath, '-PipeName', target.pipeName, '-ProjectId', target.projectId, '-SessionKey', target.sessionKey, '-Payload', payload], { windowsHide: true, timeout: 12000 });
   };
   await complete('turn-1');
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].unread === 1, 'real notify.ps1 marks red');
   await complete('turn-1');
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].unread, 1);
+  const firstCompletedAt = (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].lastCompletedAt;
+  await complete('background-turn', info, 'background-thread');
+  assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].unread, 1, 'different background IDs do not mean a fresh user submission');
+  assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].lastCompletedAt, firstCompletedAt);
   const animation = await page.locator(`[data-project-id="${projects[0].id}"]`).evaluate(el => getComputedStyle(el).animationName);
   assert.equal(animation, 'attention-border');
   console.log('PASS: real PowerShell notify -> authenticated local pipe -> red blinking panel, duplicates ignored');
@@ -430,6 +434,8 @@ try {
   await page.getByRole('button', { name: '返回总览', exact: true }).click();
   await waitFor(async () => !await page.locator('.focus-mode').count(), 'back to grid');
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].sessionId, sessionBefore);
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, "Write-Output 'SECOND_USER_INSTRUCTION'\r"), projects[0].id);
+  await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady, 'new submitted instruction completes');
   await complete('turn-2');
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].unread === 1, 'second round red');
   console.log('PASS: red tile opens native fullscreen, marks viewed, returns without restarting terminal, and next turn lights red');
@@ -442,6 +448,8 @@ try {
   console.log('PASS: manually completing a project makes a persistent green, non-blinking panel');
 
   const target = bootstraps.find(b => b.projectId === projects[2].id);
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, "Write-Output 'IDLE_ALERT_FIXTURE'\r"), projects[2].id);
+  await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[2].shellReady, 'idle notification fixture command completes');
   await complete('other-project-turn', target);
   await page.getByRole('textbox', { name: '搜索项目' }).fill('不存在');
   await page.waitForSelector('.no-results');
@@ -458,20 +466,33 @@ try {
   const idlePanel = page.locator(`[data-project-id="${projects[2].id}"]`);
   await waitFor(async () => idlePanel.evaluate(element => !element.classList.contains('attention-active') && getComputedStyle(element).animationName === 'none'), 'completed idle project becomes quiet after its initial alert', 13000);
   await complete('other-project-turn', target);
+  const idleCompletedAt = (await page.evaluate(() => window.projectGrid.getState())).value.projects[2].lastCompletedAt;
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, '\x1b[I\x1b[O\x1b[1;1R'), projects[2].id);
+  await complete('idle-background-turn', target, 'another-thread');
+  assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].lastCompletedAt, idleCompletedAt);
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].unread, 1, 'same completed turn never repeats the notification');
   assert.equal(await idlePanel.evaluate(element => getComputedStyle(element).animationName), 'none');
-  console.log('PASS: idle completed projects retain a static red frame without repeating the breathing alert');
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, 'draft-only'), projects[2].id);
+  await complete('draft-background-turn', target, 'yet-another-thread');
+  assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].unread, 1, 'an unsubmitted draft does not rearm notifications');
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, '\x03'), projects[2].id);
+  await page.evaluate(id => window.projectGrid.acknowledge(id), projects[2].id);
+  await complete('after-acknowledgment', target);
+  assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].unread, 0, 'viewing a completed turn never rearms it');
+  await page.evaluate(id => window.projectGrid.writeTerminal(id, "Write-Output 'NEW_REQUEST_AFTER_IDLE'\r"), projects[2].id);
+  await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[2].shellReady, 'new request after a quiet idle period');
+  await complete('actual-next-turn', target);
+  assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].unread, 1, 'newly submitted work can notify once again');
+  console.log('PASS: idle callbacks with different IDs, focus reports and unsubmitted drafts stay quiet; only a new submission rearms the next alert');
   for (const width of process.argv.includes('--compact-screen') ? [1600, 1400] : [1600, 1200, 900, 820]) {
     await application.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 700), width);
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    const positions = await page.evaluate(() => {
+    await waitFor(async () => page.evaluate(() => {
       const bar = document.querySelector('.titlebar').getBoundingClientRect();
       return [...document.querySelectorAll('.titlebar-tools > *, .window-actions')].every(node => {
         const box = node.getBoundingClientRect();
         return box.top >= bar.top && box.bottom <= bar.bottom && box.left >= 0 && box.right <= innerWidth;
       }) && getComputedStyle(document.querySelector('.titlebar-tools')).webkitAppRegion === 'no-drag';
-    });
-    assert.equal(positions, true, `top controls fit in ${width}px window`);
+    }), `top controls fit after the native resize to ${width}px`);
   }
   await page.screenshot({ path: path.join(output, 'compact.png') });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
@@ -508,5 +529,14 @@ try {
   }
   process.exitCode = 1;
 } finally {
-  if (application) await application.close();
+  if (application) {
+    // Let the isolated fixture shells exit before Electron disposes six ConPTYs
+    // at once; forced parallel disposal can stall Windows runner teardown.
+    try {
+      const testPage = await application.firstWindow();
+      await testPage.evaluate(async () => { const state = await window.projectGrid.getState(); if (state.ok) for (const project of state.value.projects) if (project.shellReady && !project.codexActive) window.projectGrid.writeTerminal(project.id, 'exit\r'); });
+      await waitFor(async () => (await testPage.evaluate(() => window.projectGrid.getState())).value.projects.every(project => project.status === 'exited' || project.status === 'stopped'), 'fixture shells exit', 4000);
+    } catch {}
+    await application.close();
+  }
 }

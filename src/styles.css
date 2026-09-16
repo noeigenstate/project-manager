@@ -121,10 +121,6 @@ kbd { font: 9px 'Segoe UI', sans-serif; border: 1px solid #303743; border-radius
 .terminal-empty p { margin: 3px 0 0; font-size: 13px; color: #aab7c9; }
 .terminal-empty > span { font-size: 11px; color: #6e7e91; }
 .terminal-empty button { margin-top: 7px; }
-.attention-overlay { display: flex; align-items: flex-end; justify-content: center; padding: 10px; position: absolute; inset: 0; border: 0; background: transparent; cursor: pointer; }
-.attention-overlay:hover { background: #c35d6908; }
-.attention-callout { display: flex; gap: 8px; align-items: center; font-size: 11px; padding: 8px 12px; color: #f6b4b9; background: #35202b; border: 1px solid #844450; border-radius: 5px; box-shadow: 0 3px 10px #0b0d1399; }
-.attention-ping { width: 5px; height: 5px; border-radius: 50%; background: #f78490; }
 .panel-footer { flex: 0 0 29px; height: 29px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #252b33; padding: 0 11px; background: #151920; border-radius: 0 0 6px 6px; }
 .panel-meta { display: flex; gap: 6px; align-items: center; font-size: 9px; color: #6a7a8f; min-width: 0; white-space: nowrap; overflow: hidden; }
 .panel-meta > span:last-child { overflow: hidden; text-overflow: ellipsis; }
@@ -192,6 +188,6 @@ kbd { font: 9px 'Segoe UI', sans-serif; border: 1px solid #303743; border-radius
 .workspace-warning { padding: 10px 24px; display: flex; align-items: center; gap: 8px; color: #d3b98f; background: #30291e; font-size: 11px; }
 .startup-message { display: flex; height: 100%; flex-direction: column; justify-content: center; align-items: center; gap: 15px; color: #94a7bd; }.startup-message h1 { font-size: 21px; }.startup-message p { color: #8091a7; }
 @container (max-width: 340px) { .panel-name small { display: none; } .panel-header { gap: 5px; padding-left: 9px; } .status-badge { font-size: 9px; } .panel-meta .meta-separator, .panel-meta > span:last-child { display: none; } }
-@container (max-width: 250px) { .status-badge > span:not(.status-dot) { display: none; } .attention-callout { padding: 7px 8px; font-size: 10px; } .panel-index { display: none; } .panel-name { font-size: 11px; } }
+@container (max-width: 250px) { .status-badge > span:not(.status-dot) { display: none; } .panel-index { display: none; } .panel-name { font-size: 11px; } }
 @media (max-width: 1100px) { .sidebar { width: 180px; flex-basis: 180px; } .titlebar-subtitle, .titlebar-divider { display: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

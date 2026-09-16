@@ -9,7 +9,7 @@ const pty = require('node-pty');
 const { WorkspaceStore } = require('./state.cjs');
 const { createEventServer } = require('./events.cjs');
 const { listDirectory, readProjectFile, resolveProjectPath, VIDEO_TYPES } = require('./project-files.cjs');
-const { isTerminalResponse, acceptShellEvent } = require('./terminal-input.cjs');
+const { isTerminalResponse, acceptShellEvent, SubmissionTracker } = require('./terminal-input.cjs');
 const { createTerminalEnvironment } = require('./terminal-env.cjs');
 const { PreviewResources, resourceResponse } = require('./preview-resources.cjs');
 const { resolveTerminalLink } = require('./terminal-links.cjs');
@@ -61,7 +61,7 @@ function publicState() {
     projects: store.projects.map(p => {
       const s = sessions.get(p.id);
       return {
-        id: p.id, name: p.name, path: p.path, unread: p.unread, done: p.done, lastCompletedAt: p.lastCompletedAt,
+        id: p.id, name: p.name, path: p.path, unread: p.unread, done: p.done, lastCompletedAt: p.lastCompletedAt, awaitingCompletion: p.completionArmed,
         kind: p.kind || 'local', ssh: p.ssh || null,
         branch: branches.get(p.id) || '',
         sessionId: s?.sessionId || null,
@@ -171,6 +171,9 @@ async function resumeAfterPrompt(project, session) {
     // that history, but do not submit work to a possibly still-running session.
     const command = resumeCommand(info && !plan.codex ? { ...info, state: 'unknown' } : info, plan.codex);
     if (command && sessions.get(project.id) === session && session.ready && !session.inputDirty && !session.codexActive) {
+      // Opening completed history is not new input. Only the automatic
+      // continuation of interrupted work may produce another completion alert.
+      store.expectCompletion(project.id, info?.state === 'interrupted' && plan.codex);
       session.ready = false;
       session.terminal.write(command);
       broadcast();
@@ -226,7 +229,7 @@ function startTerminal(id) {
   const s = {
     terminal, sessionId, sessionKey, bootstrapFile, status: 'starting', ready: false,
     codexActive: false, codexAvailable: null, seq: 0, chunks: [], bytes: 0, pending: '',
-    flushTimer: null, lastActivityAt: Date.now(), error: null,
+    flushTimer: null, lastActivityAt: Date.now(), error: null, submissions: new SubmissionTracker(),
   };
   sessions.set(id, s);
   store.setRestore(id, { terminal: true, ...(restorePlans.has(id) ? {} : { codex: false }) });
@@ -472,6 +475,7 @@ function registerIpc() {
     if (typeof data !== 'string' || data.length > 1024 * 1024) return;
     const s = sessions.get(id);
     if (s && s.status !== 'exited') {
+      if (s.submissions.write(data)) store.expectCompletion(id);
       if (!s.codexActive && !isTerminalResponse(data)) { s.inputDirty = true; if (data.includes('\r') || data.includes('\n')) s.ready = false; }
       s.terminal.write(data);
       scheduleState();

@@ -2,7 +2,7 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 export type Project = {
   id: string; name: string; path: string; branch: string; unread: number; done: boolean;
   kind: 'local' | 'ssh'; ssh: { host: string; configFile: string | null } | null;
-  lastCompletedAt: number | null; lastActivityAt: number | null;
+  lastCompletedAt: number | null; lastActivityAt: number | null; awaitingCompletion: boolean;
   sessionId: string | null; status: 'stopped' | 'starting' | 'shell' | 'codex' | 'exited';
   codexActive: boolean; shellReady: boolean; codexAvailable: boolean | null; error: string | null;
 };

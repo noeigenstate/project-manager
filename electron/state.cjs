@@ -37,6 +37,7 @@ class WorkspaceStore {
         unread: Number.isSafeInteger(p.unread) && p.unread > 0 ? p.unread : 0,
         done: p.done === true,
         lastCompletedAt: typeof p.lastCompletedAt === 'number' ? p.lastCompletedAt : null,
+        completionArmed: p.completionArmed === true,
         seenEvents: Array.isArray(p.seenEvents) ? p.seenEvents.filter(x => typeof x === 'string').slice(-128) : [],
       }));
       this.settings = cleanSettings(value.settings);
@@ -53,7 +54,7 @@ class WorkspaceStore {
     const key = process.platform === 'win32' ? canonical.toLowerCase() : canonical;
     const existing = this.projects.find(p => p.kind !== 'ssh' && (process.platform === 'win32' ? p.path.toLowerCase() : p.path) === key);
     if (existing) return { project: existing, added: false };
-    const project = { id: randomUUID(), name: path.basename(canonical) || canonical, path: canonical, kind: 'local', restore: { terminal: false, codex: false }, unread: 0, done: false, lastCompletedAt: null, seenEvents: [] };
+    const project = { id: randomUUID(), name: path.basename(canonical) || canonical, path: canonical, kind: 'local', restore: { terminal: false, codex: false }, unread: 0, done: false, lastCompletedAt: null, completionArmed: false, seenEvents: [] };
     this.projects.push(project);
     this.save();
     return { project, added: true };
@@ -64,7 +65,7 @@ class WorkspaceStore {
     const existing = this.projects.find(p => p.kind === 'ssh' && p.ssh.host === connection.host && p.ssh.configFile === connection.configFile && p.path === connection.path);
     if (existing) return { project: existing, added: false };
     const base = path.posix.basename(connection.path);
-    const project = { id: randomUUID(), name: String(input.name || (base === '~' ? connection.host : base) || connection.host).slice(0, 120), kind: 'ssh', path: connection.path, ssh: { host: connection.host, configFile: connection.configFile }, restore: { terminal: false, codex: false }, unread: 0, done: false, lastCompletedAt: null, seenEvents: [] };
+    const project = { id: randomUUID(), name: String(input.name || (base === '~' ? connection.host : base) || connection.host).slice(0, 120), kind: 'ssh', path: connection.path, ssh: { host: connection.host, configFile: connection.configFile }, restore: { terminal: false, codex: false }, unread: 0, done: false, lastCompletedAt: null, completionArmed: false, seenEvents: [] };
     this.projects.push(project); this.save(); return { project, added: true };
   }
 
@@ -96,10 +97,21 @@ class WorkspaceStore {
     this.save();
   }
 
+  expectCompletion(id, expected = true) {
+    const project = this.projects.find(p => p.id === id);
+    if (!project || project.completionArmed === expected) return;
+    project.completionArmed = expected;
+    this.save();
+  }
+
   complete(id, eventId, now = Date.now()) {
     const project = this.projects.find(p => p.id === id);
     if (!project || typeof eventId !== 'string' || !eventId || eventId.length > 256 || project.seenEvents.includes(eventId)) return false;
     project.seenEvents = [...project.seenEvents, eventId].slice(-128);
+    // Background callbacks can use a different thread/turn ID without any new
+    // instruction. Remember those IDs too, but grant only one alert per input.
+    if (!project.completionArmed) { this.save(); return false; }
+    project.completionArmed = false;
     project.unread += 1;
     project.done = false;
     project.lastCompletedAt = now;
@@ -115,7 +127,7 @@ class WorkspaceStore {
 
   markDone(id, done) {
     const project = this.projects.find(p => p.id === id);
-    if (project) { project.done = done === true; if (project.done) project.unread = 0; }
+    if (project) { project.done = done === true; if (project.done) { project.unread = 0; project.completionArmed = false; } }
     this.save();
   }
 
