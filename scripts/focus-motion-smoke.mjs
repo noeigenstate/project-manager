@@ -20,8 +20,11 @@ for (const name of ['界面开发', '服务接口', '数据处理', '工具项�
 await fs.writeFile(path.join(dataDir, 'workspace.json'), JSON.stringify({ version: 2, projects, settings: { notifications: false, closeToTray: false, restoreSessions: false } }));
 const env = { ...process.env, PROJECT_GRID_DATA_DIR: dataDir }; delete env.ELECTRON_RUN_AS_NODE; delete env.PROJECT_GRID_DEV_URL;
 const packaged = process.argv.includes('--packaged');
+const executableIndex = process.argv.indexOf('--executable');
+const actualExecutable = executableIndex >= 0 ? path.resolve(process.argv[executableIndex + 1]) : null;
 let application, page;
 const errors = [];
+async function waitFor(check, label) { const until = Date.now() + 20000; while (Date.now() < until) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 60)); } throw new Error(`Timed out: ${label}`); }
 async function settled(focused) {
   await page.waitForFunction(expected => !document.querySelector('.focus-motion-panel') && !!document.querySelector('.focus-mode') === expected, focused);
   await page.waitForFunction(() => !document.querySelector('[data-focus-motion]'));
@@ -34,19 +37,36 @@ async function landed(id) {
   assert.ok(gap < 2, `panel must land in its layout slot, gap=${gap}`);
 }
 try {
-  application = await electron.launch({ executablePath: packaged ? path.join(root, 'release/win-unpacked/Project Grid.exe') : require('electron'), args: [...(packaged ? [] : [root]), '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling'], cwd: root, env, timeout: 30000 });
+  application = await electron.launch({ executablePath: actualExecutable || (packaged ? path.join(root, 'release/win-unpacked/Project Grid.exe') : require('electron')), args: actualExecutable || packaged ? [] : [root], cwd: root, env, timeout: 30000 });
   page = await application.firstWindow(); page.on('pageerror', error => errors.push(error.message));
   await application.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0]; window.webContents.setBackgroundThrottling(false); window.setBounds({ x: 40, y: 40, width: 1180, height: 780 });
+    const window = BrowserWindow.getAllWindows()[0]; window.setBounds({ x: 40, y: 40, width: 1180, height: 780 }); window.focus();
   });
   await page.waitForSelector('.project-panel');
   console.log('System reduced motion:', await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches));
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  assert.equal(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getBackgroundThrottling()), false, 'the installed app itself keeps visible animations rendering');
   const id = projects.at(-1).id, panel = page.locator(`[data-project-id="${id}"]`);
   await panel.getByRole('button', { name: '启动终端', exact: true }).click();
-  await page.waitForFunction(async id => (await window.projectGrid.getState()).value.projects.find(project => project.id === id).shellReady, id);
+  await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects.find(project => project.id === id).shellReady, 'initial PowerShell prompt');
+  await panel.locator('.panel-terminal-area').click({ position: { x: 36, y: 95 } });
+  await page.keyboard.type("[IO.File]::WriteAllText('first-line.txt', 'FIRST')");
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type("[IO.File]::WriteAllText('second-line.txt', 'SECOND')");
+  assert.equal(await fs.access(path.join(projects.at(-1).path, 'first-line.txt')).then(() => true, () => false), false, 'Shift+Enter inserts a line without executing a complete PowerShell command');
+  assert.equal(await page.locator('.focus-mode').count(), 0);
+  await page.keyboard.press('Enter');
+  await waitFor(async () => fs.access(path.join(projects.at(-1).path, 'second-line.txt')).then(() => true, () => false), 'both submitted PowerShell lines execute');
+  await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects.find(project => project.id === id).shellReady, 'PowerShell prompt after multiline input');
+  assert.equal(await fs.readFile(path.join(projects.at(-1).path, 'first-line.txt'), 'utf8'), 'FIRST');
+  assert.equal(await fs.readFile(path.join(projects.at(-1).path, 'second-line.txt'), 'utf8'), 'SECOND');
+  console.log('PASS: real PowerShell edits two lines with Shift+Enter and executes both only after Enter');
   const sessionId = (await page.evaluate(() => window.projectGrid.getState())).value.projects.find(project => project.id === id).sessionId;
-  await panel.locator('textarea').focus(); await page.keyboard.type("Write-Output 'PENDING_INPUT'");
+  await panel.locator('.panel-terminal-area').click({ position: { x: 36, y: 95 } });
+  await page.keyboard.type("Write-Output 'PENDING_INPUT'");
+  assert.equal(await page.locator('.focus-mode').count(), 0, 'clicking the terminal input and typing stays in the small card');
+  assert.equal(await panel.locator('textarea').evaluate(element => element === document.activeElement), true);
+  await panel.locator('.panel-meta').click();
+  assert.equal(await page.locator('.focus-mode').count(), 0, 'the footer does not expand the card');
   await panel.evaluate(panel => { globalThis.motionTerminal = panel.querySelector('.terminal-host'); });
   const outputRow = panel.locator('.xterm-rows > div').filter({ hasText: 'PROJECT GRID' }).first();
   const rowBox = await outputRow.boundingBox();
@@ -57,7 +77,7 @@ try {
   const original = await panel.boundingBox();
   const overviewViewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   await page.screenshot({ path: path.join(output, 'overview.png') });
-  await panel.locator('.panel-terminal-area').click({ position: { x: 36, y: 95 } });
+  await panel.locator('.panel-header').click({ position: { x: 8, y: 8 } });
   await page.waitForSelector('[data-focus-motion="opening"] .focus-motion-panel');
   const mid = await panel.evaluate(panel => {
     const animation = panel.getAnimations().find(animation => animation.effect.getKeyframes().some(frame => frame.transform));
@@ -107,7 +127,7 @@ try {
     requestAnimationFrame(sample);
   });
   const naturalStart = (await panel.boundingBox()).width;
-  await panel.locator('.panel-terminal-area').click({ position: { x: 36, y: 95 } });
+  await panel.getByRole('button', { name: `全屏查看 ${projects.at(-1).name}`, exact: true }).click();
   await settled(true);
   const naturalEnd = (await panel.boundingBox()).width;
   const samples = await page.evaluate(() => globalThis.focusMotionSamples);
@@ -116,15 +136,17 @@ try {
   assert.ok(growing.at(-1).time - growing[0].time >= 200, 'visible enlargement must be gradual, not concentrated into the first few frames');
   await fs.writeFile(path.join(output, 'natural-motion.json'), JSON.stringify(samples));
   await page.keyboard.press('Control+Shift+g'); await settled(false);
-  console.log('PASS: clicking normal terminal content opens the card; unpaused animation grows visibly across multiple frames');
+  console.log('PASS: only the header/expand button opens the card; unpaused animation works without test-only rendering flags');
 
   await page.evaluate(id => window.projectGrid.markDone(id, true), id);
   await page.waitForFunction(id => document.querySelector(`[data-project-id="${id}"]`).classList.contains('is-done'), id);
   await panel.locator('.panel-terminal-area').click({ position: { x: 36, y: 95 } });
+  assert.equal(await page.locator('.focus-mode').count(), 0, 'green-card terminal input stays in the overview too');
+  await panel.locator('.panel-header').click({ position: { x: 8, y: 8 } });
   await settled(true); await landed(id);
   await page.keyboard.press('Control+Shift+g'); await settled(false);
   await page.evaluate(id => window.projectGrid.markDone(id, false), id);
-  console.log('PASS: completed green cards also open by clicking terminal content');
+  console.log('PASS: completed cards also require an explicit header click to expand');
 
   await panel.locator('.panel-name').click();
   await page.waitForSelector('.focus-motion-panel');

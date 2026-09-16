@@ -68,6 +68,10 @@ if declare -p PROMPT_COMMAND 2>/dev/null | grep -q 'declare -a'; then
 else
     PROMPT_COMMAND="__pg_prompt${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
 fi
+# Keep Shift+Enter as an inserted newline at the Bash prompt as well as in
+# TUIs such as Codex. These bindings are private to this generated shell rc.
+bind -m emacs-standard '"\e[13;2u":"\C-v\C-j"' 2>/dev/null || true
+bind -m vi-insertion '"\e[13;2u":"\C-v\C-j"' 2>/dev/null || true
 printf '\033[36m  PROJECT GRID / SSH\033[0m\n  Type codex to start, or codex resume to continue.\n\n'
 '''
 

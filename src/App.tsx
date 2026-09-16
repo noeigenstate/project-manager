@@ -73,17 +73,11 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
     className={`project-panel ${project.unread && !project.done ? 'has-unread' : ''} ${freshCompletion ? 'attention-active' : ''} ${project.done ? 'is-done' : ''} ${working ? 'is-working' : ''} ${roundComplete ? 'round-complete' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''} ${dragging ? 'drag-source' : ''} ${dropTarget ? 'drop-target' : ''}`}
     data-project-id={project.id} data-status={project.done ? 'done' : project.unread ? 'unread' : project.status}
     style={{ display: hidden ? 'none' : undefined }}
-    onClick={event => {
-      const target = event.target as Element;
-      if (focused || event.button !== 0 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
-      if (target.closest('button, input, textarea, a, [role="menu"], [role="scrollbar"], .scrollbar, .terminal-host[data-has-selection="true"]')) return;
-      const selection = window.getSelection();
-      if (selection && !selection.isCollapsed && (event.currentTarget.contains(selection.anchorNode) || event.currentTarget.contains(selection.focusNode))) return;
-      onFocus(project.id);
-    }}
   >
     {(project.unread || project.done || working || roundComplete) && <><span className="panel-edge-light edge-start" aria-hidden="true" /><span className="panel-edge-light edge-end" aria-hidden="true" /></>}
-    <header className="panel-header" title={focused ? undefined : '单击项目放大，按住标题拖动排序'}>
+    <header className="panel-header" title={focused ? undefined : '点击标题栏放大，按住标题栏拖动排序'} onClick={event => {
+      if (!focused && event.button === 0 && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !(event.target as Element).closest('button, [role="menu"]')) onFocus(project.id);
+    }}>
       <span className="panel-index">{String(index + 1).padStart(2, '0')}</span>
       <button className="panel-name" onClick={() => !focused && onFocus(project.id)} title={project.kind === 'ssh' ? `${project.ssh?.host}:${project.path}` : project.path}>
         <span>{project.name}</span>

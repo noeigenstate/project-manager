@@ -20,13 +20,16 @@ const { RemoteConnection } = require('./remote-connection.cjs');
 const { recentSession, resumeCommand } = require('./session-restore.cjs');
 const { FileOperations } = require('./file-operations.cjs');
 const { VoiceManager } = require('./voice.cjs');
+const { windowsAppId, materializeIcon, repairShortcuts } = require('./windows-integration.cjs');
 
 const root = path.join(__dirname, '..');
 const integrationDir = app.isPackaged ? path.join(process.resourcesPath, 'integration') : path.join(root, 'integration');
 const devUrl = !app.isPackaged ? process.env.PROJECT_GRID_DEV_URL : null;
 if (process.env.PROJECT_GRID_DATA_DIR) app.setPath('userData', path.resolve(process.env.PROJECT_GRID_DATA_DIR));
 app.setName('Project Grid');
-app.setAppUserModelId('local.projectgrid.desktop');
+const installed = isInstalledBuild(app.isPackaged, process.execPath);
+const appUserModelId = windowsAppId({ packaged: app.isPackaged, installed, profile: process.env.PROJECT_GRID_DATA_DIR });
+app.setAppUserModelId(appUserModelId);
 protocol.registerSchemesAsPrivileged([
   { scheme: 'project-grid', privileges: { standard: true, secure: true, supportFetchAPI: true } },
   { scheme: 'project-preview', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
@@ -507,6 +510,19 @@ else {
   app.on('second-instance', () => showWindow());
   app.whenReady().then(async () => {
     fs.mkdirSync(app.getPath('userData'), { recursive: true });
+    let shellIcon = path.join(root, 'assets/icon.ico');
+    if (process.platform === 'win32') shellIcon = materializeIcon(shellIcon, app.getPath('userData'));
+    if (process.platform === 'win32' && installed && !process.env.PROJECT_GRID_DATA_DIR) {
+      try {
+        const repaired = repairShortcuts({ shell, executable: process.execPath, iconSource: shellIcon, userData: app.getPath('userData'),
+          programs: path.join(app.getPath('appData'), 'Microsoft/Windows/Start Menu/Programs'),
+          commonPrograms: process.env.ProgramData ? path.join(process.env.ProgramData, 'Microsoft/Windows/Start Menu/Programs') : null,
+          desktop: app.getPath('desktop'), commonDesktop: process.env.PUBLIC ? path.join(process.env.PUBLIC, 'Desktop') : null,
+        });
+        shellIcon = repaired.icon;
+        if (repaired.changes.length) execFile(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/ie4uinit.exe'), ['-show'], { windowsHide: true, timeout: 5000 }, () => {});
+      } catch (error) { console.warn('Windows shortcut repair:', error.message); }
+    }
     store = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace.json'));
     voiceManager = new VoiceManager({ directory: path.join(app.getPath('userData'), 'voice'), fetcher: (url, options) => electronNet.fetch(url, options), changed: state => send('voice:state', state) });
     fileOperations = new FileOperations({ integrationDir, cacheRoot: path.join(app.getPath('userData'), 'file-clipboard'), remote: remoteFor,
@@ -546,8 +562,18 @@ else {
       width: 1500, height: 940, minWidth: 820, minHeight: 560,
       title: 'Project Grid · 项目矩阵', backgroundColor: '#101216',
       frame: false, show: false, icon: path.join(root, 'assets/icon.png'),
-      webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, nodeIntegrationInSubFrames: false, contextIsolation: true, sandbox: true, spellcheck: false },
+      webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, nodeIntegrationInSubFrames: false, contextIsolation: true, sandbox: true, spellcheck: false, backgroundThrottling: false },
     });
+    if (process.platform === 'win32') window.setAppDetails({ appId: appUserModelId, appIconPath: shellIcon, appIconIndex: 0,
+      relaunchCommand: app.isPackaged ? `"${process.execPath}"` : `"${process.execPath}" "${root}"`,
+      relaunchDisplayName: process.env.PROJECT_GRID_DATA_DIR ? 'Project Grid Test' : !app.isPackaged ? 'Project Grid Dev' : installed ? 'Project Grid' : 'Project Grid Portable',
+    });
+    // Native fullscreen can temporarily mark a visible window as occluded.
+    // Keep its live terminals and zoom painting; throttle only after hiding it.
+    window.on('hide', () => window.webContents.setBackgroundThrottling(true));
+    window.on('minimize', () => window.webContents.setBackgroundThrottling(true));
+    window.on('show', () => window.webContents.setBackgroundThrottling(false));
+    window.on('restore', () => window.webContents.setBackgroundThrottling(false));
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('context-menu', (_event, params) => {
       if (activeTerminal || (!params.isEditable && !params.selectionText)) return;

@@ -92,6 +92,14 @@ test('Linux remote worker reads real files, enforces boundaries and emits Codex 
   assert.equal(Buffer.from(await connection.request('read', { path: 'hello.txt', offset: 0, length: 6 }), 'base64').toString(), '中文');
   await assert.rejects(connection.request('read', { path: '../outside', offset: 0, length: 10 }));
   await waitFor(() => events.some(event => event.type === 'shell-prompt' && event.codexAvailable));
+  connection.write('printf FIRST > shift-first.txt');
+  connection.write('\x1b[13;2u');
+  connection.write('printf SECOND > shift-second.txt');
+  await new Promise(resolve => setTimeout(resolve, 150));
+  await assert.rejects(fs.stat(path.join(fixture.project, 'shift-first.txt')), 'modified Enter must not execute the first complete Bash command');
+  connection.write('\r');
+  await waitFor(async () => fs.readFile(path.join(fixture.project, 'shift-second.txt'), 'utf8').then(value => value === 'SECOND', () => false));
+  assert.equal(await fs.readFile(path.join(fixture.project, 'shift-first.txt'), 'utf8'), 'FIRST');
   connection.write('codex\r');
   await waitFor(() => events.some(event => event.type === 'turn-complete'));
   await waitFor(() => events.some(event => event.type === 'codex-exited'));

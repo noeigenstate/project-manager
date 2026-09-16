@@ -48,6 +48,7 @@ test('split multiline paste and editing newlines wait for an explicit submission
   assert.equal(tracker.write('\n'), false, 'Ctrl+J inserts a newline');
   assert.equal(tracker.write('\x1b\r'), false, 'Alt+Enter inserts a newline');
   assert.equal(tracker.write('\x1b[13;2u'), false, 'modified Enter does not submit');
+  assert.equal(tracker.write('\x1b[13;28;13;1;16;1_\x1b[13;28;13;0;16;1_'), false, 'native Windows Shift+Enter does not rearm completion');
   assert.equal(tracker.write('\x1b[13u'), true);
   assert.equal(tracker.write('\r'), false);
   assert.equal(tracker.write('\x1b['), false);

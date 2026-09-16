@@ -97,7 +97,11 @@ jobs:
         run: npm run test:sessions -- --packaged
 
       - name: Verify animated project expansion and return
-        run: npm run test:motion -- --packaged
+        run: |
+          node scripts/verify-installer-payload.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installed = Get-Content -LiteralPath .test-output/installer-payload.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          node scripts/focus-motion-smoke.mjs --executable $installed.executable
 
       - name: Verify completion notifications only rearm after new input
         run: npm run test:completion -- --packaged
@@ -207,13 +211,15 @@ jobs:
 
           - Multiple project terminals with completion alerts.
           - Fullscreen project view, collapsible file explorer, and frosted glass interface.
-          - Click terminal content in any project state to zoom in gradually over about 720 ms; text selection and Ctrl-click links retain their own behavior.
+          - Click the top header or expand button to zoom in gradually; terminal input, output and footer clicks stay in the small card.
+          - Installed, development and test builds use separate Windows identities; branded multi-size icons and repaired Start menu shortcuts prevent Electron entries from replacing Project Grid in Windows search.
           - Compact top titlebar, brighter text and Ctrl-click terminal links.
           - Inline image and video viewing, large text pages and isolated HTML previews.
           - The installed edition downloads updates in the background. Restart and install from Settings when your tasks are finished.
           - Add local folders or Linux SSH projects using your existing VS Code SSH configuration.
           - Restore the latest Codex conversation on startup and continue interrupted turns automatically.
           - Select and copy terminal text, copy all scrollback from the context menu, and paste with Ctrl+V.
+          - Shift+Enter inserts a newline without submitting; regular Enter stays distinct in local and SSH terminals.
           - Drag the full live project card while neighboring cards shift into place; the saved order survives restarts.
           - Ctrl-click Codex relative file paths, including parenthesized report links, to open them from the project root.
           - Softer glass surfaces, luminous edges, rounded controls and readable terminal content, inspired by Liquid Glass.

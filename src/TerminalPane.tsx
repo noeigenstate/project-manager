@@ -119,6 +119,13 @@ export function TerminalPane({ id, sessionId, fontSize, onError, focused, onOpen
     const resized = terminal.onResize(({ cols, rows }) => window.projectGrid.resizeTerminal(id, cols, rows));
     terminal.attachCustomKeyEventHandler(event => {
       if (event.type !== 'keydown') return true;
+      if (!event.isComposing && event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        event.preventDefault();
+        // xterm's legacy Enter mapping drops Shift. ConPTY needs native key
+        // records; Linux TUIs understand the modified Enter CSI-u sequence.
+        window.projectGrid.writeTerminal(id, remote ? '\x1b[13;2u' : '\x1b[13;28;13;1;16;1_\x1b[13;28;13;0;16;1_');
+        return false;
+      }
       if (event.ctrlKey && !event.altKey && event.code === 'KeyC' && (event.shiftKey || terminal.hasSelection())) {
         event.preventDefault();
         const selection = terminal.getSelection();

@@ -133,6 +133,17 @@ try {
   await application.evaluate(async ({ clipboard }) => { globalThis.testClipboardLast = await clipboard.readText(); });
   assert.ok((await clipboardText()).includes('COPY_SAMPLE_END 中文可复制'));
 
+  await panel.locator('.panel-terminal-area').click({ position: { x: 42, y: 80 } });
+  await page.keyboard.press('Shift+Enter');
+  const keyReceipt = path.join(projects[0].path, 'key-receipt.jsonl');
+  const receivedKeys = async () => { try { return (await fs.readFile(keyReceipt, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)); } catch { return []; } };
+  await waitFor(async () => (await receivedKeys()).some(key => key.key === 'Enter' && key.modifiers === 'Shift'), 'native CLI receives Shift+Enter with the Shift modifier intact');
+  assert.equal((await receivedKeys()).some(key => key.key === 'Enter' && key.modifiers === '0'), false, 'Shift+Enter never also sends an ordinary Enter');
+  assert.equal(await page.locator('.focus-mode').count(), 0, 'newline entry keeps the small window');
+  await page.keyboard.press('Enter');
+  await waitFor(async () => (await receivedKeys()).some(key => key.key === 'Enter' && key.modifiers === '0'), 'ordinary Enter remains a submission key');
+  console.log('PASS: native Windows CLI receives a real Shift+Enter, ordinary Enter stays distinct, and input stays in the small card');
+
   const search = page.getByRole('textbox', { name: '搜索项目', exact: true });
   await setClipboard('输入框粘贴 中文🙂');
   await search.focus(); await page.keyboard.press('Control+v');
@@ -184,6 +195,8 @@ try {
   await waitFor(async () => application.evaluate((_, text) => globalThis.testInputs.some(item => item.data.includes(text)), pasted), 'terminal Ctrl+V reaches transport');
   await page.keyboard.press('Control+Shift+v'); await page.keyboard.press('Shift+Insert');
   await waitFor(async () => application.evaluate((_, text) => globalThis.testInputs.filter(item => item.data.includes(text)).length === 3, pasted), 'all paste shortcuts send once');
+  await page.keyboard.press('Shift+Enter');
+  await waitFor(async () => application.evaluate(() => globalThis.testInputs.some(item => item.data === '\x1b[13;2u')), 'SSH receives modified Enter without an ordinary carriage return');
   await page.keyboard.press('Control+c');
   await waitFor(async () => application.evaluate(() => globalThis.testInputs.some(item => item.data === '\x03')), 'Ctrl+C without selection still interrupts');
   await restoreClipboard();

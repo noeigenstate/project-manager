@@ -14,6 +14,9 @@ class RestoreCodexFixture {
         for (int i = 0; i < 150; i++) Console.WriteLine("scrollback line " + i);
         Console.WriteLine("COPY_SAMPLE_END 中文可复制");
         Console.WriteLine("RESTORE_FIXTURE_READY");
-        while (true) Thread.Sleep(1000);
+        while (true) {
+            var key = Console.ReadKey(true);
+            File.AppendAllText(Path.Combine(Directory.GetCurrentDirectory(), "key-receipt.jsonl"), new JavaScriptSerializer().Serialize(new { key = key.Key.ToString(), character = (int)key.KeyChar, modifiers = key.Modifiers.ToString() }) + "\n", new UTF8Encoding(false));
+        }
     }
 }
