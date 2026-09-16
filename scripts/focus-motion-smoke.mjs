@@ -40,6 +40,7 @@ try {
     const window = BrowserWindow.getAllWindows()[0]; window.webContents.setBackgroundThrottling(false); window.setBounds({ x: 40, y: 40, width: 1180, height: 780 });
   });
   await page.waitForSelector('.project-panel');
+  console.log('System reduced motion:', await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches));
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   const id = projects.at(-1).id, panel = page.locator(`[data-project-id="${id}"]`);
   await panel.getByRole('button', { name: '启动终端', exact: true }).click();
@@ -47,9 +48,16 @@ try {
   const sessionId = (await page.evaluate(() => window.projectGrid.getState())).value.projects.find(project => project.id === id).sessionId;
   await panel.locator('textarea').focus(); await page.keyboard.type("Write-Output 'PENDING_INPUT'");
   await panel.evaluate(panel => { globalThis.motionTerminal = panel.querySelector('.terminal-host'); });
+  const outputRow = panel.locator('.xterm-rows > div').filter({ hasText: 'PROJECT GRID' }).first();
+  const rowBox = await outputRow.boundingBox();
+  await page.mouse.move(rowBox.x + 12, rowBox.y + rowBox.height / 2); await page.mouse.down();
+  await page.mouse.move(rowBox.x + 108, rowBox.y + rowBox.height / 2, { steps: 6 }); await page.mouse.up();
+  assert.equal(await page.locator('.focus-mode').count(), 0, 'dragging text in an ordinary card keeps it in the overview');
+  assert.equal(await panel.locator('.terminal-host').getAttribute('data-has-selection'), 'true');
   const original = await panel.boundingBox();
+  const overviewViewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   await page.screenshot({ path: path.join(output, 'overview.png') });
-  await panel.locator('.panel-name').click();
+  await panel.locator('.panel-terminal-area').click({ position: { x: 36, y: 95 } });
   await page.waitForSelector('[data-focus-motion="opening"] .focus-motion-panel');
   const mid = await panel.evaluate(panel => {
     const animation = panel.getAnimations().find(animation => animation.effect.getKeyframes().some(frame => frame.transform));
@@ -67,6 +75,10 @@ try {
   const full = await panel.boundingBox();
   await page.getByRole('button', { name: '返回总览', exact: true }).click();
   await page.waitForSelector('[data-focus-motion="closing"] .focus-motion-panel');
+  await page.waitForFunction(({ id, viewport }) => {
+    const panel = document.querySelector(`[data-project-id="${id}"]`);
+    return innerWidth === viewport.width && innerHeight === viewport.height && panel.classList.contains('focus-motion-panel') && Math.abs(panel.offsetWidth - panel.parentElement.offsetWidth) < 2;
+  }, { id, viewport: overviewViewport });
   const shrinking = await panel.evaluate(panel => {
     const animation = panel.getAnimations().find(animation => animation.effect.getKeyframes().some(frame => frame.transform));
     animation.pause(); animation.currentTime = Number(animation.effect.getTiming().duration) * .35;
@@ -82,6 +94,37 @@ try {
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects.find(project => project.id === id).sessionId, sessionId);
   assert.ok((await panel.innerText()).includes('PENDING_INPUT'), 'unsubmitted terminal input survives both transitions');
   console.log('PASS: last card expands and shrinks through intermediate bounds, with the same live terminal and pending input');
+
+  // Observe natural playback as well as the paused screenshots above. The old
+  // fast easing completed almost all visible growth in its first 150 ms.
+  await panel.evaluate(panel => {
+    globalThis.focusMotionSamples = [];
+    const started = performance.now();
+    const sample = () => {
+      globalThis.focusMotionSamples.push({ time: performance.now() - started, width: panel.getBoundingClientRect().width, moving: panel.classList.contains('focus-motion-panel') });
+      if (performance.now() - started < 1600) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  const naturalStart = (await panel.boundingBox()).width;
+  await panel.locator('.panel-terminal-area').click({ position: { x: 36, y: 95 } });
+  await settled(true);
+  const naturalEnd = (await panel.boundingBox()).width;
+  const samples = await page.evaluate(() => globalThis.focusMotionSamples);
+  const growing = samples.filter(sample => sample.moving && sample.width > naturalStart + (naturalEnd - naturalStart) * .05 && sample.width < naturalStart + (naturalEnd - naturalStart) * .92);
+  assert.ok(growing.length >= 4, 'natural playback must render several visibly different intermediate sizes');
+  assert.ok(growing.at(-1).time - growing[0].time >= 200, 'visible enlargement must be gradual, not concentrated into the first few frames');
+  await fs.writeFile(path.join(output, 'natural-motion.json'), JSON.stringify(samples));
+  await page.keyboard.press('Control+Shift+g'); await settled(false);
+  console.log('PASS: clicking normal terminal content opens the card; unpaused animation grows visibly across multiple frames');
+
+  await page.evaluate(id => window.projectGrid.markDone(id, true), id);
+  await page.waitForFunction(id => document.querySelector(`[data-project-id="${id}"]`).classList.contains('is-done'), id);
+  await panel.locator('.panel-terminal-area').click({ position: { x: 36, y: 95 } });
+  await settled(true); await landed(id);
+  await page.keyboard.press('Control+Shift+g'); await settled(false);
+  await page.evaluate(id => window.projectGrid.markDone(id, false), id);
+  console.log('PASS: completed green cards also open by clicking terminal content');
 
   await panel.locator('.panel-name').click();
   await page.waitForSelector('.focus-motion-panel');

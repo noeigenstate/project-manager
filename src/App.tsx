@@ -74,11 +74,16 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
     data-project-id={project.id} data-status={project.done ? 'done' : project.unread ? 'unread' : project.status}
     style={{ display: hidden ? 'none' : undefined }}
     onClick={event => {
-      if (!focused && project.unread && !event.ctrlKey && !(event.target as Element).closest('button, input, [role="menu"], .terminal-host[data-has-selection="true"]')) onFocus(project.id);
+      const target = event.target as Element;
+      if (focused || event.button !== 0 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      if (target.closest('button, input, textarea, a, [role="menu"], [role="scrollbar"], .scrollbar, .terminal-host[data-has-selection="true"]')) return;
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed && (event.currentTarget.contains(selection.anchorNode) || event.currentTarget.contains(selection.focusNode))) return;
+      onFocus(project.id);
     }}
   >
     {(project.unread || project.done || working || roundComplete) && <><span className="panel-edge-light edge-start" aria-hidden="true" /><span className="panel-edge-light edge-end" aria-hidden="true" /></>}
-    <header className="panel-header" title={focused ? undefined : '按住标题区域拖动排序，其他项目会自动让位'}>
+    <header className="panel-header" title={focused ? undefined : '单击项目放大，按住标题拖动排序'}>
       <span className="panel-index">{String(index + 1).padStart(2, '0')}</span>
       <button className="panel-name" onClick={() => !focused && onFocus(project.id)} title={project.kind === 'ssh' ? `${project.ssh?.host}:${project.path}` : project.path}>
         <span>{project.name}</span>

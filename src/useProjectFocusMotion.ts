@@ -41,7 +41,7 @@ export function useProjectFocusMotion() {
     if (!panel || !slot || !slot.getClientRects().length || getComputedStyle(panel).visibility === 'hidden') return;
 
     const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-    const duration = flight.opening ? 460 : 380;
+    const duration = flight.opening ? 720 : 560;
     const deadline = performance.now() + duration;
     let animation: Animation | null = null;
     let target: Bounds;
@@ -84,7 +84,7 @@ export function useProjectFocusMotion() {
       const next = panel.animate([
         { transform: `translate3d(${left}px, ${y}px, 0) scale(${width / target.width}, ${height / target.height})` },
         { transform: `translate3d(${target.left}px, ${target.top}px, 0) scale(1, 1)` },
-      ], { duration: remaining, easing: 'cubic-bezier(.22,.8,.24,1.025)', fill: 'both' });
+      ], { duration: remaining, easing: 'cubic-bezier(.32,.08,.24,1)', fill: 'both' });
       animation = next;
       next.finished.then(() => { if (animation === next) clear(); }).catch(() => {});
     };
@@ -92,7 +92,9 @@ export function useProjectFocusMotion() {
       if (finished) return;
       const next = slot.getBoundingClientRect();
       if (Math.abs(next.left - target.left) + Math.abs(next.top - target.top) + Math.abs(next.width - target.width) + Math.abs(next.height - target.height) < 1) return;
-      animate(panel.getBoundingClientRect(), Math.max(120, deadline - performance.now()));
+      // A slower native fullscreen resize must not consume nearly all of the
+      // visible zoom and turn the remaining motion into an abrupt snap.
+      animate(panel.getBoundingClientRect(), Math.max(flight.opening ? 380 : 280, deadline - performance.now()));
     };
     const onPreference = () => { if (reduced.matches) clear(); };
     const observer = new ResizeObserver(retarget);
@@ -106,7 +108,7 @@ export function useProjectFocusMotion() {
       const sidebar = shell.querySelector('.focus-sidebar');
       if (sidebar) supporting.push(sidebar.animate([
         { opacity: 0, transform: 'translateX(-14px)' }, { opacity: 1, transform: 'translateX(0)' },
-      ], { duration: 280, delay: 100, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' }));
+      ], { duration: 360, delay: 120, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' }));
     } else {
       for (const sibling of shell.querySelectorAll<HTMLElement>('.project-slot')) {
         if (sibling !== slot && sibling.getClientRects().length) supporting.push(sibling.animate([

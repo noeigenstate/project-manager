@@ -207,6 +207,7 @@ jobs:
 
           - Multiple project terminals with completion alerts.
           - Fullscreen project view, collapsible file explorer, and frosted glass interface.
+          - Click terminal content in any project state to zoom in gradually over about 720 ms; text selection and Ctrl-click links retain their own behavior.
           - Compact top titlebar, brighter text and Ctrl-click terminal links.
           - Inline image and video viewing, large text pages and isolated HTML previews.
           - The installed edition downloads updates in the background. Restart and install from Settings when your tasks are finished.
