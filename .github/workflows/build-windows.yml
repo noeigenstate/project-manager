@@ -103,7 +103,7 @@ jobs:
         run: npm run test:completion -- --packaged
 
       - name: Verify file operations and microphone UI with isolated test devices
-        run: npm run test:workspace -- --packaged
+        run: npm run test:workspace -- --packaged --slow-copy
 
       - name: Create checksum and build notes
         run: |

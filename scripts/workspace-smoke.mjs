@@ -41,6 +41,7 @@ const packaged = process.argv.includes('--packaged');
 const env = { ...process.env, PROJECT_GRID_DATA_DIR: dataDir }; delete env.ELECTRON_RUN_AS_NODE; delete env.PROJECT_GRID_DEV_URL;
 let application, page;
 async function waitFor(fn, label, timeout = 30000) { const start = Date.now(); while (Date.now() - start < timeout) { if (await fn()) return; await new Promise(resolve => setTimeout(resolve, 80)); } throw new Error(`Timed out: ${label}`); }
+async function filesFinished() { await waitFor(async () => { const result = await page.evaluate(() => window.projectGrid.getFileProgress()); return result.ok && result.value === null; }, 'all files in the paste operation finish'); }
 async function backupClipboard() { await application.evaluate(async ({ clipboard, ClipboardItem }) => { globalThis.clipboardBackup = await Promise.all((await clipboard.read()).filter(item => item.types.length).map(async item => new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)])))))); }); }
 async function ownClipboard() { await application.evaluate(async ({ clipboard }) => { globalThis.clipboardOwnedText = await clipboard.readText(); }); }
 async function restoreClipboard() { if (!application) return; await application.evaluate(async ({ clipboard }) => { if (globalThis.clipboardBackup && await clipboard.readText() === globalThis.clipboardOwnedText) { if (globalThis.clipboardBackup.length) await clipboard.write(globalThis.clipboardBackup); else clipboard.clear(); } globalThis.clipboardBackup = null; }).catch(() => {}); }
@@ -53,6 +54,14 @@ try {
     globalThis.voicePastes = [];
     ipcMain.on('terminal:write', (_event, id, data) => globalThis.voicePastes.push({ id, data }));
   });
+  if (process.argv.includes('--slow-copy')) await application.evaluate((_, fixtureRoot) => {
+    const filesystem = process.mainModule.require('node:fs/promises');
+    const copy = filesystem.cp;
+    filesystem.cp = async (source, ...rest) => {
+      if (String(source).startsWith(fixtureRoot) && String(source).endsWith('外部文件夹')) await new Promise(resolve => setTimeout(resolve, 700));
+      return copy(source, ...rest);
+    };
+  }, output);
   if (!assets) await application.evaluate(({ ipcMain }) => {
     ipcMain.removeHandler('voice:state'); ipcMain.handle('voice:state', () => ({ ok: true, value: { phase: 'ready', ready: true, percent: 100, model: 'test stub', error: null } }));
     ipcMain.removeHandler('voice:transcribe'); ipcMain.handle('voice:transcribe', (_event, audio) => { if (audio.byteLength < 16000) return { ok: false, error: 'Missing recorded microphone samples' }; return { ok: true, value: 'Please open the project folder and continue the task.' }; });
@@ -93,11 +102,14 @@ try {
   await page.getByRole('treeitem', { name: '目标目录', exact: true }).click();
   await page.getByRole('button', { name: '粘贴文件', exact: true }).click();
   await waitFor(async () => { try { return await fs.readFile(path.join(project.path, '目标目录/外部文件夹/nested.txt'), 'utf8') === 'NESTED_PASTE_CONTENT'; } catch { return false; } }, 'toolbar pastes into the selected directory');
+  await filesFinished();
   await tree.click({ position: blank, button: 'right' });
   await page.getByRole('menuitem', { name: /^粘贴/ }).click();
   await waitFor(async () => { try { return await fs.readFile(path.join(project.path, 'external - 副本 (2).txt'), 'utf8') === 'PASTE_IN_CONTENT'; } catch { return false; } }, 'blank-area menu pastes into project root');
+  await filesFinished();
   await tree.click({ position: blank }); await page.keyboard.press('Shift+Insert');
   await waitFor(async () => { try { return await fs.readFile(path.join(project.path, 'external - 副本 (3).txt'), 'utf8') === 'PASTE_IN_CONTENT'; } catch { return false; } }, 'Shift+Insert pastes files into the focused explorer');
+  await filesFinished();
   console.log('PASS: blank-area Ctrl+V and context menu, toolbar folder destination, multi-file/directory paste and safe duplicate names');
   await restoreClipboard();
   await page.getByRole('treeitem', { name: 'renamed.txt', exact: true }).click(); await page.keyboard.press('Delete');
