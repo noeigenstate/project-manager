@@ -102,6 +102,15 @@ test('Linux remote worker reads real files, enforces boundaries and emits Codex 
   assert.equal(await fs.readFile(path.join(fixture.project, 'shift-first.txt'), 'utf8'), 'FIRST');
   connection.write('codex\r');
   await waitFor(() => events.some(event => event.type === 'turn-complete'));
+  const activityThread = randomUUID(), activitySince = Date.now();
+  const sessions = path.join(fixture.home, '.codex', 'sessions');
+  await fs.mkdir(sessions, { recursive: true });
+  const activityFile = path.join(sessions, `rollout-${activityThread}.jsonl`);
+  const activityRecord = type => JSON.stringify({ type: 'event_msg', timestamp: new Date().toISOString(), payload: { type, turn_id: 'parent-turn' } }) + '\n';
+  await fs.writeFile(activityFile, JSON.stringify({ type: 'session_meta', payload: { id: activityThread, cwd: fixture.project, source: 'cli' } }) + '\n' + activityRecord('task_started'));
+  assert.equal((await connection.request('codex-status', { since: activitySince })).state, 'working');
+  await fs.appendFile(activityFile, activityRecord('task_complete'));
+  assert.equal((await connection.request('codex-status', { since: activitySince })).state, 'complete');
   await waitFor(() => events.some(event => event.type === 'codex-exited'));
   assert.ok(output.includes('REMOTE_CODEX_DONE'));
   let clipboard = [];

@@ -25,6 +25,8 @@ try {
         sessionKey = $SessionKey
         type = 'turn-complete'
         eventId = $eventId
+        threadId = $threadId
+        turnId = $turnId
     } | ConvertTo-Json -Compress
     $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', $PipeName, [System.IO.Pipes.PipeDirection]::Out)
     try {

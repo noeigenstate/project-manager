@@ -6,6 +6,8 @@ from pathlib import Path
 import tempfile
 import unittest
 import uuid
+import time
+from datetime import datetime, timezone
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "integration" / "remote-worker.py"
 spec = importlib.util.spec_from_file_location("remote_worker", MODULE_PATH)
@@ -39,6 +41,26 @@ class RemoteFilesTest(unittest.TestCase):
         self.assertEqual(self.worker.preview("page.html", 0)["kind"], "html")
         self.assertEqual(self.worker.preview("clip.mp4", 0)["kind"], "video")
         self.assertEqual(base64.b64decode(self.worker.read("中文.txt", 0, 6)), "中文".encode())
+
+    def test_parent_activity_ignores_child_and_stale_completion(self):
+        home = Path(self.temp.name) / "codex"
+        sessions = home / "sessions"
+        sessions.mkdir(parents=True)
+        parent, child = str(uuid.uuid4()), str(uuid.uuid4())
+        def event(kind, turn):
+            return json.dumps({"type": "event_msg", "timestamp": datetime.now(timezone.utc).isoformat(), "payload": {"type": kind, "turn_id": turn}}) + "\n"
+        filename = sessions / ("rollout-" + parent + ".jsonl")
+        filename.write_text(json.dumps({"type": "session_meta", "payload": {"id": parent, "cwd": str(self.root), "source": "cli"}}) + "\n" + event("task_started", "parent"), encoding="utf-8")
+        (sessions / ("rollout-" + child + ".jsonl")).write_text(json.dumps({"type": "session_meta", "payload": {"id": child, "cwd": str(self.root), "source": {"subagent": "parent"}}}) + "\n" + event("task_complete", "child"), encoding="utf-8")
+        reader = remote.CodexActivityReader(str(self.root), str(home), time.time() * 1000)
+        self.assertEqual(reader.read()["state"], "working")
+        with filename.open("a", encoding="utf-8") as output: output.write(event("task_complete", "old"))
+        self.assertEqual(reader.read()["state"], "working")
+        completion = event("task_complete", "parent")
+        with filename.open("a", encoding="utf-8") as output: output.write(completion[:-1])
+        self.assertEqual(reader.read()["state"], "working")
+        with filename.open("a", encoding="utf-8") as output: output.write("\n")
+        self.assertEqual(reader.read()["state"], "complete")
 
     def test_large_unicode_pages_are_lossless(self):
         content = "A" * (remote.PAGE_BYTES - 1) + "中文🙂\ufeff内容\n" * 40000

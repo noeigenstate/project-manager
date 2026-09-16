@@ -4,7 +4,7 @@ export type Project = {
   kind: 'local' | 'ssh'; ssh: { host: string; configFile: string | null } | null;
   lastCompletedAt: number | null; lastActivityAt: number | null; awaitingCompletion: boolean;
   sessionId: string | null; status: 'stopped' | 'starting' | 'shell' | 'codex' | 'exited';
-  codexActive: boolean; shellReady: boolean; codexAvailable: boolean | null; error: string | null;
+  codexActive: boolean; codexActivity: 'unknown' | 'working' | 'complete' | 'interrupted'; shellReady: boolean; codexAvailable: boolean | null; error: string | null;
 };
 export type Settings = { columns: number; notifications: boolean; sound: boolean; closeToTray: boolean; explorerCollapsed: boolean; fontSize: number; restoreSessions: boolean; focusAnimation: 'smooth' | 'system' | 'off' };
 export type SSHInfo = { hosts: string[]; configFile: string; configExists: boolean; sshPath: string; source: string };

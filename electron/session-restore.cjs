@@ -75,4 +75,4 @@ function resumeCommand(info, allowFresh) {
   return `codex resume ${info.id}${info.state === 'interrupted' ? ' "继续"' : ''}\r`;
 }
 
-module.exports = { recentSession, advanceTaskState, resumeCommand };
+module.exports = { recentSession, advanceTaskState, resumeCommand, records, sameDirectory };

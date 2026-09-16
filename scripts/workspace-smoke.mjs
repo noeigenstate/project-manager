@@ -48,6 +48,19 @@ async function restoreClipboard() { if (!application) return; await application.
 try {
   application = await electron.launch({ executablePath: packaged ? path.join(root, 'release/win-unpacked/Project Grid.exe') : require('electron'), args: [...(packaged ? [] : [root]), '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${speech}`, '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding'], cwd: root, env, timeout: 30000 });
   page = await application.firstWindow();
+  if (process.argv.includes('--slow-copy')) await application.evaluate(({ ipcMain }) => {
+    const handler = ipcMain._invokeHandlers.get('project:directory');
+    let delayed = false, active = 0;
+    globalThis.directoryPeakRequests = 0;
+    ipcMain.removeHandler('project:directory');
+    ipcMain.handle('project:directory', async (event, ...args) => {
+      active++; globalThis.directoryPeakRequests = Math.max(globalThis.directoryPeakRequests, active);
+      try {
+        if (!delayed) { delayed = true; await new Promise(resolve => setTimeout(resolve, 4200)); }
+        return await handler(event, ...args);
+      } finally { active--; }
+    });
+  });
   await application.evaluate(({ dialog, ipcMain, BrowserWindow }) => {
     dialog.showMessageBox = async () => ({ response: 1 });
     BrowserWindow.getAllWindows()[0].webContents.setBackgroundThrottling(false);
@@ -70,6 +83,10 @@ try {
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady, 'terminal ready');
   await page.getByRole('button', { name: `全屏查看 ${project.name}`, exact: true }).click();
   await page.getByRole('treeitem', { name: 'source.txt', exact: true }).waitFor();
+  if (process.argv.includes('--slow-copy')) {
+    assert.equal(await application.evaluate(() => globalThis.directoryPeakRequests), 1, 'automatic refresh must not overlap or discard a slow directory read');
+    console.log('PASS: a directory read slower than the refresh interval still renders, with one request in flight');
+  }
   assert.equal(await page.locator('.explorer-project').count(), 0);
   assert.equal(await page.locator('.explorer-path').getAttribute('title'), project.path);
   await page.getByRole('button', { name: '新建文件', exact: true }).click();

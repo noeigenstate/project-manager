@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { _electron as electron } from 'playwright';
+import { runDesktopTask } from '../tests/helpers/desktop-task-fixture.mjs';
 
 const require = createRequire(import.meta.url);
 const exec = promisify(execFile);
@@ -175,6 +176,7 @@ try {
     const payload = JSON.stringify({ type: 'agent-turn-complete', 'thread-id': threadId, 'turn-id': turnId, cwd: projects[0].path, 'last-assistant-message': '验证完成 "quotes" 中文' });
     await exec(target.powershellPath, ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', target.notifyPath, '-PipeName', target.pipeName, '-ProjectId', target.projectId, '-SessionKey', target.sessionKey, '-Payload', payload], { windowsHide: true, timeout: 12000 });
   };
+  await runDesktopTask(page, projects[0], path.join(output, 'codex-home'), 'turn-1', waitFor);
   await complete('turn-1');
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].unread === 1, 'real notify.ps1 marks red');
   await complete('turn-1');
@@ -185,7 +187,7 @@ try {
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].lastCompletedAt, firstCompletedAt);
   const animation = await page.locator(`[data-project-id="${projects[0].id}"]`).evaluate(el => getComputedStyle(el).animationName);
   assert.equal(animation, 'attention-border');
-  console.log('PASS: real PowerShell notify -> authenticated local pipe -> red blinking panel, duplicates ignored');
+  console.log('PASS: parent lifecycle lights the red panel; unrelated notify callbacks are ignored');
 
   const projectOrder = () => page.locator('.project-grid > .project-slot > .project-panel').evaluateAll(panels => panels.map(panel => panel.dataset.projectId));
   const beginProjectDrag = async (sourceId, targetId) => {
@@ -436,6 +438,7 @@ try {
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].sessionId, sessionBefore);
   await page.evaluate(id => window.projectGrid.writeTerminal(id, "Write-Output 'SECOND_USER_INSTRUCTION'\r"), projects[0].id);
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].shellReady, 'new submitted instruction completes');
+  await runDesktopTask(page, projects[0], path.join(output, 'codex-home'), 'turn-2', waitFor);
   await complete('turn-2');
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].unread === 1, 'second round red');
   console.log('PASS: red tile opens native fullscreen, marks viewed, returns without restarting terminal, and next turn lights red');
@@ -450,6 +453,7 @@ try {
   const target = bootstraps.find(b => b.projectId === projects[2].id);
   await page.evaluate(id => window.projectGrid.writeTerminal(id, "Write-Output 'IDLE_ALERT_FIXTURE'\r"), projects[2].id);
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[2].shellReady, 'idle notification fixture command completes');
+  await runDesktopTask(page, projects[2], path.join(output, 'codex-home'), 'other-project-turn', waitFor);
   await complete('other-project-turn', target);
   await page.getByRole('textbox', { name: '搜索项目' }).fill('不存在');
   await page.waitForSelector('.no-results');
@@ -481,6 +485,7 @@ try {
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].unread, 0, 'viewing a completed turn never rearms it');
   await page.evaluate(id => window.projectGrid.writeTerminal(id, "Write-Output 'NEW_REQUEST_AFTER_IDLE'\r"), projects[2].id);
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[2].shellReady, 'new request after a quiet idle period');
+  await runDesktopTask(page, projects[2], path.join(output, 'codex-home'), 'actual-next-turn', waitFor);
   await complete('actual-next-turn', target);
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].unread, 1, 'newly submitted work can notify once again');
   console.log('PASS: idle callbacks with different IDs, focus reports and unsubmitted drafts stay quiet; only a new submission rearms the next alert');

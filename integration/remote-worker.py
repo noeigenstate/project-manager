@@ -16,6 +16,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime
 
 PAGE_BYTES = 256 * 1024
 MAX_READ = 256 * 1024
@@ -24,16 +25,16 @@ PREFIX = "PGW1 "
 IMAGE_TYPES = {".png": "image/png", ".apng": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".jpe": "image/jpeg", ".jfif": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".avif": "image/avif", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
 VIDEO_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".ogv": "video/ogg", ".ogg": "video/ogg", ".mov": "video/quicktime", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo"}
 
-NOTIFY_SOURCE = r'''import hashlib,json,os,socket,sys
+NOTIFY_SOURCE = r'''import hashlib,json,os,socket,sys,time
 try:
     mode=sys.argv[1]
-    event={"type":mode,"token":os.environ["PROJECT_GRID_TOKEN"],"cwd":os.getcwd(),"codexHome":os.environ.get("CODEX_HOME",os.path.expanduser("~/.codex"))}
+    event={"type":mode,"token":os.environ["PROJECT_GRID_TOKEN"],"cwd":os.getcwd(),"codexHome":os.environ.get("CODEX_HOME",os.path.expanduser("~/.codex")),"sentAt":int(time.time()*1000)}
     if mode=="notify":
         payload=json.loads(sys.argv[2])
         if payload.get("type")!="agent-turn-complete": sys.exit(0)
         identity=str(payload.get("thread-id",""))+":"+str(payload.get("turn-id",""))
         if identity==":": sys.exit(0)
-        event.update(type="turn-complete",eventId=hashlib.sha256(identity.encode()).hexdigest())
+        event.update(type="turn-complete",eventId=hashlib.sha256(identity.encode()).hexdigest(),threadId=payload.get("thread-id"),turnId=payload.get("turn-id"))
     elif mode=="shell-prompt": event["codexAvailable"]=len(sys.argv)>2 and sys.argv[2]=="1"
     elif mode=="codex-exited": event["exitCode"]=int(sys.argv[2])
     with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
@@ -131,6 +132,77 @@ def recent_session(root, codex_home):
         except (OSError, ValueError, TypeError): continue
     return None
 
+class CodexActivityReader:
+    """Incrementally read only the interactive parent's lifecycle records."""
+    def __init__(self, root, home, since):
+        self.root, self.home, self.since = root, home, since
+        self.filename, self.snapshot = None, None
+        self.offset, self.buffer, self.skipping, self.next_discovery = 0, b"", False, 0
+
+    def discover(self):
+        if time.monotonic() < self.next_discovery: return
+        self.next_discovery = time.monotonic() + 2
+        candidates = []
+        for current, dirs, files in os.walk(os.path.join(self.home, "sessions")):
+            dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(current, name))]
+            for name in files:
+                if not (name.startswith("rollout-") and name.endswith(".jsonl")): continue
+                filename = os.path.join(current, name)
+                try:
+                    modified = os.stat(filename).st_mtime * 1000
+                    if modified >= self.since - 2000: candidates.append((modified, filename))
+                except OSError: pass
+        for _, filename in sorted(candidates, reverse=True):
+            if filename == self.filename: return
+            try:
+                rows = json_records(filename)
+                try: record = next(rows, {})
+                finally: rows.close()
+                meta = record.get("payload", {})
+                if record.get("type") != "session_meta" or meta.get("source", "cli") not in ("cli", "vscode"): continue
+                if os.path.realpath(meta.get("cwd", "")) != os.path.realpath(self.root) or not re.fullmatch(r"[a-fA-F0-9-]{36}", meta.get("id", "")): continue
+                self.filename = filename
+                self.offset, self.buffer, self.skipping = 0, b"", False
+                self.snapshot = {"threadId": meta["id"], "turnId": None, "state": "unknown", "updatedAt": 0}
+                return
+            except (OSError, ValueError, TypeError): pass
+
+    def record(self, record):
+        if record.get("type") != "event_msg": return
+        item = record.get("payload", {})
+        kind, turn = item.get("type"), item.get("turn_id")
+        try: updated = int(datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).timestamp() * 1000)
+        except (ValueError, TypeError): updated = 0
+        if kind in ("task_started", "turn_started") and isinstance(turn, str) and turn:
+            self.snapshot.update(turnId=turn, state="working", updatedAt=updated)
+        elif kind in ("task_complete", "turn_completed", "turn_aborted", "turn_interrupted"):
+            if not self.snapshot["turnId"] or turn and turn != self.snapshot["turnId"]: return
+            self.snapshot.update(state="complete" if kind in ("task_complete", "turn_completed") else "interrupted", updatedAt=updated)
+
+    def read(self):
+        if not self.filename or self.snapshot["state"] != "working": self.discover()
+        if not self.filename: return None
+        with open(self.filename, "rb") as source:
+            size = os.fstat(source.fileno()).st_size
+            if size < self.offset:
+                self.offset, self.buffer, self.skipping = 0, b"", False
+                self.snapshot.update(turnId=None, state="unknown", updatedAt=0)
+            source.seek(self.offset)
+            end = min(size, self.offset + 4 * 1024 * 1024)
+            while self.offset < end:
+                chunk = source.read(min(65536, end - self.offset))
+                if not chunk: break
+                self.offset += len(chunk)
+                self.buffer += chunk
+                while b"\n" in self.buffer:
+                    line, self.buffer = self.buffer.split(b"\n", 1)
+                    if not self.skipping and len(line) <= 1024 * 1024:
+                        try: self.record(json.loads(line))
+                        except (ValueError, UnicodeError, TypeError): pass
+                    self.skipping = False
+                if len(self.buffer) > 1024 * 1024: self.buffer, self.skipping = b"", True
+            return dict(self.snapshot) if self.offset >= size else None
+
 class Worker:
     def __init__(self, emit):
         self.emit = emit
@@ -143,6 +215,15 @@ class Worker:
         self.sequence_lock = threading.Lock()
         self.codex_home = os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex"))
         self.uploads = {}
+        self.activity_reader = None
+        self.activity_lock = threading.Lock()
+
+    def codex_status(self, since):
+        if not isinstance(since, (int, float)) or since <= 0: raise ValueError("无效的会话时间。")
+        with self.activity_lock:
+            if self.activity_reader is None or self.activity_reader.since != since:
+                self.activity_reader = CodexActivityReader(self.coding_root, self.codex_home, since)
+            return self.activity_reader.read()
 
     def initialize(self, config):
         self.root = os.path.realpath(os.path.expanduser(config["path"]))
@@ -349,8 +430,9 @@ class Worker:
                     event = json.loads(data)
                     if event.pop("token", None) != self.token: continue
                     codex_home = event.pop("codexHome", None)
-                    if isinstance(codex_home, str) and os.path.isabs(codex_home): self.codex_home = codex_home
-                    if isinstance(event.get("cwd"), str) and os.path.isabs(event["cwd"]): self.coding_root = event["cwd"]
+                    if event.get("type") in ("shell-prompt", "codex-started"):
+                        if isinstance(codex_home, str) and os.path.isabs(codex_home): self.codex_home = codex_home
+                        if isinstance(event.get("cwd"), str) and os.path.isabs(event["cwd"]): self.coding_root = event["cwd"]
                     with self.sequence_lock:
                         self.sequence += 1
                         event.update(projectId=self.project_id, sessionKey=self.token, sequence=self.sequence)
@@ -419,6 +501,7 @@ def main():
             elif op == "read": value = worker.read(message["path"], message["offset"], message["length"])
             elif op == "preview": value = worker.preview(message["path"], message.get("page", 0))
             elif op == "resume-info": value = recent_session(worker.coding_root, worker.codex_home)
+            elif op == "codex-status": value = worker.codex_status(message.get("since"))
             elif op == "create": value = worker.create(message.get("path", ""), message["name"], message["kind"], message.get("unique", False))
             elif op == "rename": value = worker.rename(message["path"], message["name"])
             elif op == "remove": value = worker.remove(message["path"])

@@ -34,10 +34,11 @@ function relativeTime(timestamp: number | null, now: number) {
 }
 
 function statusText(project: Project) {
+  if (project.codexActive && project.codexActivity === 'working') return '正在处理';
   if (project.done) return '开发完成';
   if (project.unread) return '等待你查看';
   if (project.error) return '需要检查';
-  if (project.status === 'codex') return project.awaitingCompletion ? '正在处理' : project.lastCompletedAt ? '本轮已完成' : '等待指令';
+  if (project.status === 'codex') return project.codexActivity === 'complete' ? '本轮已完成' : project.codexActivity === 'interrupted' ? '已中断' : 'Codex 会话中';
   if (project.status === 'shell') return '终端就绪';
   if (project.status === 'starting') return project.kind === 'ssh' ? '正在连接 SSH' : '正在启动';
   if (project.status === 'exited') return project.kind === 'ssh' ? 'SSH 终端已退出' : '终端已退出';
@@ -57,10 +58,10 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   const hasTerminal = !!project.sessionId;
   const stopped = project.status === 'stopped' || project.status === 'exited';
   const completionAge = project.lastCompletedAt === null ? Infinity : Date.now() - project.lastCompletedAt;
-  const freshCompletion = !!project.unread && !project.done && completionAge >= 0 && completionAge < 9000;
-  const working = project.codexActive && project.awaitingCompletion && !project.unread && !project.done && !project.error;
-  const roundComplete = project.codexActive && !project.awaitingCompletion && !!project.lastCompletedAt && !project.unread && !project.done && !project.error;
-  const badgeClass = `status-badge ${project.done || roundComplete ? 'green' : project.unread ? 'red' : project.error ? 'amber' : working ? 'blue' : ''}`;
+  const working = project.codexActive && project.codexActivity === 'working' && !project.error;
+  const freshCompletion = !!project.unread && !project.done && !working && completionAge >= 0 && completionAge < 9000;
+  const roundComplete = project.codexActive && project.codexActivity === 'complete' && !project.unread && !project.done && !project.error;
+  const badgeClass = `status-badge ${working ? 'blue' : project.done || roundComplete ? 'green' : project.unread ? 'red' : project.error ? 'amber' : ''}`;
   const badge = <><span className="status-dot" aria-hidden="true" /><span>{statusText(project)}</span></>;
   useEffect(() => {
     if (!menuOpen) return;
@@ -70,8 +71,8 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   }, [menuOpen]);
   const action = (callback: () => void) => { setMenuOpen(false); callback(); };
   return <article
-    className={`project-panel ${project.unread && !project.done ? 'has-unread' : ''} ${freshCompletion ? 'attention-active' : ''} ${project.done ? 'is-done' : ''} ${working ? 'is-working' : ''} ${roundComplete ? 'round-complete' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''} ${dragging ? 'drag-source' : ''} ${dropTarget ? 'drop-target' : ''}`}
-    data-project-id={project.id} data-status={project.done ? 'done' : project.unread ? 'unread' : project.status}
+    className={`project-panel ${project.unread && !project.done && !working ? 'has-unread' : ''} ${freshCompletion ? 'attention-active' : ''} ${project.done && !working ? 'is-done' : ''} ${working ? 'is-working' : ''} ${roundComplete ? 'round-complete' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''} ${dragging ? 'drag-source' : ''} ${dropTarget ? 'drop-target' : ''}`}
+    data-project-id={project.id} data-status={working ? 'working' : project.done ? 'done' : project.unread ? 'unread' : project.status}
     style={{ display: hidden ? 'none' : undefined }}
   >
     {(project.unread || project.done || working || roundComplete) && <><span className="panel-edge-light edge-start" aria-hidden="true" /><span className="panel-edge-light edge-end" aria-hidden="true" /></>}
@@ -84,7 +85,7 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
         {project.branch && <small><GitBranch size={11} />{project.branch}</small>}
         {project.kind === 'ssh' && <small className="ssh-project-label"><Globe size={11} />{project.ssh?.host}</small>}
       </button>
-      {!!project.unread && !focused && !project.done
+      {!!project.unread && !focused && !project.done && !working
         ? <button type="button" className={`${badgeClass} status-button`} onClick={() => onFocus(project.id)} aria-label={`查看 ${project.name} 的完成结果`}>{badge}</button>
         : <span className={badgeClass}>{badge}</span>}
       {!focused && <IconButton label={`全屏查看 ${project.name}`} onClick={() => onFocus(project.id)}><ArrowsOutSimple size={16} /></IconButton>}
@@ -115,7 +116,7 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
         {project.done ? <CheckCircle size={12} /> : <TerminalIcon size={12} />}
         {project.done ? '已完成' : project.kind === 'ssh' ? `SSH · ${project.ssh?.host}` : 'PowerShell'}
         <span className="meta-separator">/</span>
-        <span>{project.lastCompletedAt ? `${relativeTime(project.lastCompletedAt, now)}完成一轮` : stopped ? project.kind === 'ssh' ? '远程项目' : '本地项目' : '独立终端'}</span>
+        <span>{working ? '任务进行中' : project.lastCompletedAt ? `${relativeTime(project.lastCompletedAt, now)}完成一轮` : stopped ? project.kind === 'ssh' ? '远程项目' : '本地项目' : '独立终端'}</span>
       </span>
       <div className="panel-footer-actions">
         <IconButton label={`语音输入 ${project.name}`} className="voice-button" onClick={() => onVoice(project)}><Microphone size={14} /></IconButton>

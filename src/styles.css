@@ -36,41 +36,7 @@ input { color: #dbe1ea; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border: 0; border-radius: 5px; background: transparent; color: #909aa8; width: 30px; height: 30px; transition: background .12s, color .12s; padding: 0; }
 .icon-button:hover { color: #e5eaf1; background: #282e38; }
 .workspace-layout { display: flex; flex: 1; min-height: 0; }
-.sidebar { width: 214px; flex: 0 0 214px; background: #13161b; border-right: 1px solid #242933; display: flex; flex-direction: column; padding: 26px 12px 0; user-select: none; }
-.sidebar-heading { display: flex; justify-content: space-between; align-items: center; padding: 0 10px 18px; }
 .eyebrow { font-size: 10px; font-weight: 500; letter-spacing: 1.5px; color: #818b99; }
-.local-tag { font: 9px 'Consolas', monospace; display: flex; gap: 5px; align-items: center; color: #6e7d8c; letter-spacing: .6px; }
-.local-tag span { width: 4px; height: 4px; border-radius: 50%; background: #769984; }
-.primary-nav { display: flex; flex-direction: column; gap: 4px; }
-.primary-nav button { height: 38px; display: flex; gap: 10px; align-items: center; width: 100%; padding: 0 10px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #9ca6b4; }
-.primary-nav button:hover { background: #1b2028; }
-.primary-nav button.selected { background: #252b35; color: #edf0f5; border-color: #303744; }
-.primary-nav button span { flex: 1; text-align: left; }
-.primary-nav button b { min-width: 21px; text-align: center; font: 11px 'Consolas', monospace; color: #a6b0bd; }
-.primary-nav .nav-attention b { background: #47282f; color: #f7999d; border-radius: 4px; padding: 2px; }
-.sidebar-separator { margin: 24px 9px 13px; height: 1px; background: #252a32; }
-.projects-heading { display: flex; align-items: center; justify-content: space-between; padding-left: 10px; margin-bottom: 5px; }
-.projects-heading .icon-button { width: 28px; }
-.sidebar-projects { min-height: 0; flex: 1; overflow-y: auto; }
-.sidebar-project { display: flex; align-items: center; gap: 9px; border: 0; padding: 9px 10px; border-radius: 4px; background: transparent; width: 100%; text-align: left; color: #a7b0bd; }
-.sidebar-project:hover { background: #1e242d; color: #e5eaf2; }
-.project-number { color: #5d6877; font: 10px 'Consolas', monospace; }
-.sidebar-project-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
-.project-arrow { opacity: 0; }
-.sidebar-project:hover .project-arrow { opacity: 1; }
-.sidebar-project.unread { color: #e1a0a5; }
-.sidebar-project.done { color: #83b89b; }
-.nav-dot { border-radius: 50%; width: 5px; height: 5px; background: var(--red); }
-.sidebar-empty { font-size: 11px; line-height: 1.8; padding: 0 10px; color: #626e7d; }
-.sidebar-bottom { margin-top: 15px; }
-.workflow-key { display: flex; flex-direction: column; gap: 9px; margin: 16px 10px 20px; font-size: 10px; color: #7e8998; }
-.workflow-key span { display: flex; align-items: center; gap: 8px; }
-.workflow-key i { width: 5px; height: 5px; border-radius: 1px; }
-.key-red { background: #ce7178; }.key-green { background: #6aab89; }
-.add-sidebar { width: 100%; justify-content: center; }
-.sidebar-settings { width: 100%; padding: 16px 9px; display: flex; align-items: center; gap: 9px; border: 0; background: transparent; color: #8792a0; font-size: 12px; }
-.sidebar-settings:hover { color: #d2dce8; }
-.sidebar-settings small { margin-left: auto; font: 10px 'Consolas', monospace; color: #657180; }
 .main-workspace { flex: 1; display: flex; min-width: 0; min-height: 0; flex-direction: column; background: #101318; }
 h1 { margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -.5px; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; border: 1px solid transparent; border-radius: 5px; font-size: 12px; line-height: 18px; font-weight: 500; white-space: nowrap; transition: background .12s, border-color .12s; }

@@ -18,6 +18,7 @@ const { getSSHInfo } = require('./ssh-config.cjs');
 const { SSHAuthServer } = require('./ssh-auth.cjs');
 const { RemoteConnection } = require('./remote-connection.cjs');
 const { recentSession, resumeCommand } = require('./session-restore.cjs');
+const { CodexActivityReader, monitorActivity } = require('./codex-activity.cjs');
 const { FileOperations } = require('./file-operations.cjs');
 const { VoiceManager } = require('./voice.cjs');
 const { windowsAppId, materializeIcon, repairShortcuts, refreshSearchIcons } = require('./windows-integration.cjs');
@@ -70,6 +71,7 @@ function publicState() {
         sessionId: s?.sessionId || null,
         status: s ? s.status : 'stopped',
         codexActive: s?.codexActive || false,
+        codexActivity: s?.codexActivity || 'unknown',
         shellReady: !!s?.ready && !s?.inputDirty,
         codexAvailable: s?.codexAvailable ?? null,
         lastActivityAt: s?.lastActivityAt || null,
@@ -136,6 +138,8 @@ function onEvent(event) {
   if (!project) return;
   if (event.type !== 'turn-complete' && !acceptShellEvent(s, event)) return;
   if (event.type === 'shell-ready' || event.type === 'shell-prompt') {
+    s.activityMonitor?.stop(); s.activityMonitor = null;
+    s.codexActive = false; s.codexActivity = 'unknown';
     s.ready = event.type === 'shell-prompt';
     s.inputDirty = false;
     s.status = 'shell';
@@ -147,9 +151,33 @@ function onEvent(event) {
     s.codexActive = true;
     s.status = 'codex';
     s.error = null;
+    s.submissions.reset();
+    s.codexActivity = 'unknown'; s.activitySince = Date.now(); s.activityInputAt = 0;
+    const remoteSince = Number.isFinite(event.sentAt) ? event.sentAt : s.activitySince;
+    s.activityMonitor?.stop();
+    const reader = project.kind === 'ssh' ? null : new CodexActivityReader(event.cwd || project.path, event.codexHome || s.codexHome, s.activitySince);
+    s.activityMonitor = monitorActivity(
+      () => reader ? reader.read() : s.terminal.request('codex-status', { since: remoteSince }),
+      snapshot => {
+        if (sessions.get(project.id) !== s || !s.codexActive) return;
+        if (!reader) snapshot = { ...snapshot, updatedAt: snapshot.updatedAt + s.activitySince - remoteSince };
+        // Resumed history and a slow response from before a new submission
+        // must not make newly running work look complete.
+        if (snapshot.updatedAt < Math.max(s.activitySince, s.activityInputAt)) return;
+        s.rootThreadId = snapshot.threadId; s.activeTurnId = snapshot.turnId;
+        s.codexActivity = snapshot.state;
+        if (snapshot.state === 'working') store.expectCompletion(project.id);
+        else if (snapshot.state === 'complete' && snapshot.turnId) {
+          if (!project.done && !project.seenEvents.includes(`${snapshot.threadId}:${snapshot.turnId}`)) store.expectCompletion(project.id);
+          if (store.complete(project.id, `${snapshot.threadId}:${snapshot.turnId}`, snapshot.updatedAt)) notifyCompletion(project);
+        } else if (snapshot.state === 'interrupted') store.expectCompletion(project.id, false);
+        broadcast();
+      },
+    );
     store.setRestore(project.id, { terminal: true, codex: true, cwd: event.cwd });
     // Unread completion is independent of session activity. It survives new turns.
   } else if (event.type === 'codex-exited') {
+    s.activityMonitor?.stop(); s.activityMonitor = null; s.codexActivity = 'unknown';
     s.ready = false;
     s.codexActive = false;
     s.status = 'shell';
@@ -157,7 +185,10 @@ function onEvent(event) {
     const code = Number(event.exitCode);
     if (code && code !== 130 && code !== -1073741510) s.error = `Codex 已退出（代码 ${code}），请查看终端输出。`;
   } else if (event.type === 'turn-complete') {
-    if (store.complete(project.id, event.eventId)) notifyCompletion(project);
+    // notify is inherited by child agents. It only requests a refresh; the
+    // interactive parent's task lifecycle is the authority for completion.
+    if (s.codexActive && (!s.rootThreadId || event.threadId === s.rootThreadId)) void s.activityMonitor?.poll();
+    return;
   } else return;
   broadcast();
   if (event.type === 'shell-prompt') void resumeAfterPrompt(project, s);
@@ -251,12 +282,12 @@ function startTerminal(id) {
     s.lastActivityAt = Date.now();
     if (s.pending.length > 65536) flush();
     else if (!s.flushTimer) s.flushTimer = setTimeout(flush, 16);
-    scheduleState();
   });
   terminal.onExit(({ exitCode }) => {
     if (sessions.get(id) !== s) return;
     flush();
     s.status = 'exited'; s.ready = false; s.codexActive = false;
+    s.activityMonitor?.stop(); s.activityMonitor = null; s.codexActivity = 'unknown';
     restorePlans.delete(id);
     if (exitCode) s.error = terminal.error || `终端已退出（代码 ${exitCode}）。`;
     if (!quitting && !exitCode) store.setRestore(id, { terminal: false, codex: false });
@@ -272,6 +303,7 @@ function disposeTerminal(id) {
   if (!s) return;
   sessions.delete(id);
   clearTimeout(s.flushTimer);
+  s.activityMonitor?.stop();
   try { s.terminal.kill(); } catch { }
   if (s.bootstrapFile) fs.rmSync(s.bootstrapFile, { force: true });
 }
@@ -478,10 +510,17 @@ function registerIpc() {
     if (typeof data !== 'string' || data.length > 1024 * 1024) return;
     const s = sessions.get(id);
     if (s && s.status !== 'exited') {
-      if (s.submissions.write(data)) store.expectCompletion(id);
-      if (!s.codexActive && !isTerminalResponse(data)) { s.inputDirty = true; if (data.includes('\r') || data.includes('\n')) s.ready = false; }
+      if (s.submissions.write(data) && s.codexActive) {
+        store.expectCompletion(id);
+        s.codexActivity = 'working'; s.activityInputAt = Date.now();
+        scheduleState();
+      }
+      if (!s.codexActive && !isTerminalResponse(data)) {
+        const wasReady = s.ready && !s.inputDirty;
+        s.inputDirty = true; if (data.includes('\r') || data.includes('\n')) s.ready = false;
+        if (wasReady) scheduleState();
+      }
       s.terminal.write(data);
-      scheduleState();
     }
   });
   listen('terminal:resize', (id, cols, rows) => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import {
   ArrowLeft, ArrowSquareOut, ArrowsInLineVertical, ArrowClockwise, BracketsCurly,
   CaretDown, CaretRight, CheckCircle, File, FileCode, FileText, Folder, FolderOpen,
@@ -57,27 +57,41 @@ function TreeNode(props: NodeProps) {
   const [loading, setLoading] = useState(false);
   const [pages, setPages] = useState(1);
   const root = depth === 0;
+  const requestRefresh = useRef<(() => void) | null>(null);
+  const lastRevision = useRef(revision);
 
   useEffect(() => {
     if (!open || !enabled) return;
-    let active = true;
-    setLoading(true);
-    (async () => {
-      const entries: FileEntry[] = [];
-      let offset: number | null = 0;
-      let result: DirectoryListing | null = null;
-      for (let page = 0; page < pages && offset !== null; page++) {
-        const response = await window.projectGrid.listDirectory(projectId, entry.path, offset);
-        if (!active) return;
-        if (!response.ok) throw new Error(response.error);
-        result = response.value;
-        entries.push(...result.entries);
-        offset = result.nextOffset;
+    let active = true, running = false, queued = false;
+    const refresh = async () => {
+      if (!active) return;
+      if (running) { queued = true; return; }
+      running = true; setLoading(true);
+      try {
+        const entries: FileEntry[] = [];
+        let offset: number | null = 0;
+        let result: DirectoryListing | null = null;
+        for (let page = 0; page < pages && offset !== null; page++) {
+          const response = await window.projectGrid.listDirectory(projectId, entry.path, offset);
+          if (!active) return;
+          if (!response.ok) throw new Error(response.error);
+          result = response.value;
+          entries.push(...result.entries);
+          if (result.nextOffset !== null && result.nextOffset <= offset) throw new Error('目录分页未前进，请刷新重试。');
+          offset = result.nextOffset;
+        }
+        if (active && result) { setListing({ ...result, entries }); setError(''); }
+      } catch (err) { if (active) setError(String(err instanceof Error ? err.message : err)); }
+      finally {
+        running = false;
+        if (active) { setLoading(false); if (queued) { queued = false; void refresh(); } }
       }
-      if (active && result) { setListing({ ...result, entries }); setError(''); }
-    })().catch(err => { if (active) setError(String(err.message || err)); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [projectId, entry.path, open, enabled, revision, pages]);
+    };
+    requestRefresh.current = () => { void refresh(); };
+    void refresh();
+    return () => { active = false; requestRefresh.current = null; };
+  }, [projectId, entry.path, open, enabled, pages]);
+  useEffect(() => { if (lastRevision.current !== revision) { lastRevision.current = revision; requestRefresh.current?.(); } }, [revision]);
 
   return <div className="tree-node" data-directory-path={isDirectory ? entry.path : undefined}>
     <button className={`tree-row ${root ? 'tree-root' : ''} ${selected.has(entry.path) || !selected.size && !isDirectory && selectedFile === entry.path ? 'file-selected' : ''}`}

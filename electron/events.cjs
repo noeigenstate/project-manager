@@ -10,12 +10,14 @@ async function createEventServer(onEvent) {
     connections.add(socket);
     socket.setEncoding('utf8');
     socket.setTimeout(1500, () => socket.destroy());
-    let buffer = '';
+    let buffer = '', handled = false;
     socket.on('data', data => {
+      if (handled) return;
       buffer += data;
       if (Buffer.byteLength(buffer) > 65536) return socket.destroy();
       const newline = buffer.indexOf('\n');
       if (newline < 0) return;
+      handled = true;
       try {
         const event = JSON.parse(buffer.slice(0, newline));
         if (event && typeof event.projectId === 'string' && typeof event.sessionKey === 'string' && typeof event.type === 'string') onEvent(event);

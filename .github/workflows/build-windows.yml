@@ -210,6 +210,8 @@ jobs:
           Install Codex CLI on the computer or Linux SSH host where your project runs.
 
           - Multiple project terminals with completion alerts.
+          - Parent-session lifecycle records determine running, completed and interrupted states; child-agent and stale-turn notifications cannot finish the current task.
+          - Incremental bounded status reads, single-flight directory refresh, fewer workspace broadcasts, and removed obsolete sidebar/drag-preview styles.
           - Fullscreen project view, collapsible file explorer, and frosted glass interface.
           - Click the top header or expand button to zoom in gradually; terminal input, output and footer clicks stay in the small card.
           - Smooth zoom is enabled by default even when Windows reduces system animations; Settings offers Smooth, Follow system and Off. Installer tests use the real OS preference.
