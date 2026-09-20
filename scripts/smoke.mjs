@@ -185,8 +185,15 @@ try {
   await complete('background-turn', info, 'background-thread');
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].unread, 1, 'different background IDs do not mean a fresh user submission');
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].lastCompletedAt, firstCompletedAt);
-  const animation = await page.locator(`[data-project-id="${projects[0].id}"]`).evaluate(el => getComputedStyle(el).animationName);
-  assert.equal(animation, 'attention-border');
+  const animation = await page.locator(`[data-project-id="${projects[0].id}"]`).evaluate(el => ({
+    panel: getComputedStyle(el).animationName,
+    lights: ['.panel-signal', '.status-dot'].map(selector => {
+      const style = getComputedStyle(el.querySelector(selector));
+      return [style.animationName, style.animationDuration, style.animationIterationCount];
+    }),
+  }));
+  assert.equal(animation.panel, 'none', 'the reading surface never flashes');
+  assert.deepEqual(animation.lights, [['signal-breathe', '2s', '3'], ['signal-breathe', '2s', '3']]);
   console.log('PASS: parent lifecycle lights the red panel; unrelated notify callbacks are ignored');
 
   const projectOrder = () => page.locator('.project-grid > .project-slot > .project-panel').evaluateAll(panels => panels.map(panel => panel.dataset.projectId));
@@ -470,14 +477,14 @@ try {
   await page.screenshot({ path: path.join(output, 'settings.png') });
   await page.getByRole('button', { name: '关闭设置', exact: true }).click();
   const idlePanel = page.locator(`[data-project-id="${projects[2].id}"]`);
-  await waitFor(async () => idlePanel.evaluate(element => !element.classList.contains('attention-active') && getComputedStyle(element).animationName === 'none'), 'completed idle project becomes quiet after its initial alert', 13000);
+  await waitFor(async () => idlePanel.evaluate(element => !element.classList.contains('attention-active') && element.getAnimations({ subtree: true }).every(animation => animation.animationName !== 'signal-breathe')), 'completed idle project becomes quiet after its initial alert', 13000);
   await complete('other-project-turn', target);
   const idleCompletedAt = (await page.evaluate(() => window.projectGrid.getState())).value.projects[2].lastCompletedAt;
   await page.evaluate(id => window.projectGrid.writeTerminal(id, '\x1b[I\x1b[O\x1b[1;1R'), projects[2].id);
   await complete('idle-background-turn', target, 'another-thread');
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].lastCompletedAt, idleCompletedAt);
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].unread, 1, 'same completed turn never repeats the notification');
-  assert.equal(await idlePanel.evaluate(element => getComputedStyle(element).animationName), 'none');
+  assert.equal(await idlePanel.evaluate(element => element.getAnimations({ subtree: true }).some(animation => animation.animationName === 'signal-breathe')), false);
   await page.evaluate(id => window.projectGrid.writeTerminal(id, 'draft-only'), projects[2].id);
   await complete('draft-background-turn', target, 'yet-another-thread');
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[2].unread, 1, 'an unsubmitted draft does not rearm notifications');

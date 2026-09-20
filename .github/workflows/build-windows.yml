@@ -115,6 +115,9 @@ jobs:
       - name: Verify persistent themes, automatic editing and Markdown previews
         run: npm run test:themes-markdown -- --packaged
 
+      - name: Verify synchronized lights, readable themes and quiet completed cards
+        run: npm run test:visual -- --packaged
+
       - name: Create checksum and build notes
         run: |
           $version = '${{ steps.version.outputs.version }}'
@@ -172,6 +175,8 @@ jobs:
             .test-output/focus-motion-*/*.png
             .test-output/editor-terminals-*/*.png
             .test-output/themes-markdown-*/*.png
+            .test-output/visual-*/*.png
+            .test-output/visual-*/results.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
@@ -218,6 +223,9 @@ jobs:
           Install Codex CLI on the computer or Linux SSH host where your project runs.
 
           - Multiple project terminals with completion alerts.
+          - Crisp blue-purple-pink-amber vector edges and four corner highlights breathe in sync with the status dot every 2 seconds. Completion breathes three times, then stays quiet; manual completion stays steady green.
+          - Larger project labels, clearer status text and darker glass reading surfaces preserve terminal colors and custom font sizes across all three themes.
+          - Smaller Windows x64 packages exclude source maps, native build sources, duplicate/other-platform PTY binaries and Python caches; required local/SSH runtimes are verified before release.
           - Choose Forest Light, Mountain Blue or Wild Red in Settings; themes apply immediately and persist without restarting terminals.
           - Text/code files open directly in edit mode. Markdown previews render headings, tables, code, task lists, local/SSH images and links, including unsaved drafts.
           - Add independent terminals inside each project with automatic split layout, separate Codex identities and individual session recovery.
@@ -243,7 +251,7 @@ jobs:
           - Compact file explorer with native Windows file copy/paste, creation, renaming and deletion; SSH transfers are supported.
           - Microphone detection and offline speech-to-text with an optional first-time model download of about 64 MB.
           - Completion alerts are rearmed only by a submitted instruction. Background callbacks with new IDs, focus changes and reopening completed history stay quiet; the one-alert state survives restarts.
-          - Luminous status dots, soft borders and edge lights show blue activity, pink attention and steady green completion; the floating terminal callout is removed.
+          - Status dots show blue activity, pink attention and steady green completion; decorative light stays outside the terminal content.
           - Verified with packaged desktop tests, session restart checks, and real Linux SSH/PTY integration.
 
           Commit: $GITHUB_SHA

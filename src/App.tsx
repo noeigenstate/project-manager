@@ -67,8 +67,10 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   const working = project.codexActive && project.codexActivity === 'working';
   const freshCompletion = !!project.unread && !project.done && !working && completionAge >= 0 && completionAge < 9000;
   const roundComplete = project.codexActive && project.codexActivity === 'complete' && !project.unread && !project.done && !project.error;
+  // A new turn starts the edge and dot together; ordinary renders keep their clock.
+  const signalKey = `${working ? 'working' : 'rest'}:${project.lastCompletedAt}`;
   const badgeClass = `status-badge ${working ? 'blue' : project.done || roundComplete ? 'green' : project.unread ? 'red' : project.error ? 'amber' : ''}`;
-  const badge = <><span className="status-dot" aria-hidden="true" /><span>{statusText(project)}</span></>;
+  const badge = <><span key={signalKey} className="status-dot" aria-hidden="true" /><span>{statusText(project)}</span></>;
   useEffect(() => {
     if (!menuOpen) return;
     const dismiss = (event: PointerEvent) => { if (!menu.current?.contains(event.target as Node)) setMenuOpen(false); };
@@ -81,7 +83,7 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
     data-project-id={project.id} data-status={working ? 'working' : project.done ? 'done' : project.unread ? 'unread' : project.status}
     style={{ display: hidden ? 'none' : undefined }}
   >
-    {(project.unread || project.done || working || roundComplete) && <><span className="panel-edge-light edge-start" aria-hidden="true" /><span className="panel-edge-light edge-end" aria-hidden="true" /></>}
+    <span key={signalKey} className="panel-signal" aria-hidden="true" />
     <header className="panel-header" title={focused ? undefined : '点击标题栏放大，按住标题栏拖动排序'} onClick={event => {
       if (!focused && event.button === 0 && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !(event.target as Element).closest('button, [role="menu"]')) onFocus(project.id);
     }}>
@@ -92,8 +94,8 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
         {project.kind === 'ssh' && <small className="ssh-project-label"><Globe size={11} />{project.ssh?.host}</small>}
       </button>
       {!!project.unread && !focused && !project.done && !working
-        ? <button type="button" className={`${badgeClass} status-button`} onClick={() => onFocus(project.id)} aria-label={`查看 ${project.name} 的完成结果`}>{badge}</button>
-        : <span className={badgeClass}>{badge}</span>}
+        ? <button type="button" className={`${badgeClass} status-button`} title={statusText(project)} onClick={() => onFocus(project.id)} aria-label={`查看 ${project.name} 的完成结果`}>{badge}</button>
+        : <span className={badgeClass} title={statusText(project)}>{badge}</span>}
       <IconButton label={`新增终端 ${project.name}`} onClick={() => void addTerminal()}><Plus size={16} /></IconButton>
       {!focused && <IconButton label={`全屏查看 ${project.name}`} onClick={() => onFocus(project.id)}><ArrowsOutSimple size={16} /></IconButton>}
       <div className="panel-menu-anchor" ref={menu}>

@@ -36,3 +36,18 @@ for (const [index, icon] of groups[0].icons.entries()) {
 }
 console.log(`PASS: ${installer}, latest.yml, blockmap, SHA-512 and embedded GitHub update configuration`);
 console.log('PASS: seven embedded Project Grid icon sizes; no default Electron icon');
+const asar = require('@electron/asar');
+const archive = path.join(release, 'win-unpacked/resources/app.asar');
+const packedFiles = asar.listPackage(archive).map(file => file.replaceAll('\\', '/').replace(/^\//, ''));
+assert.ok(!packedFiles.some(file => file.endsWith('.map')), 'production packages exclude source maps');
+assert.ok(!packedFiles.some(file => /^node_modules\/node-pty\/(src|third_party|scripts|typings)\//.test(file)), 'native build sources and duplicate ConPTY copies stay out of the runtime');
+assert.ok(!packedFiles.some(file => /^node_modules\/node-pty\/prebuilds\/(?!win32-x64\/)[^/]+\//.test(file)), 'x64 installer excludes other platform native binaries');
+assert.ok(!packedFiles.some(file => file.startsWith('node_modules/node-addon-api/')), 'native build headers are not runtime dependencies');
+for (const file of ['conpty.node', 'conpty_console_list.node', 'conpty/OpenConsole.exe', 'conpty/conpty.dll']) {
+  assert.ok(fs.statSync(path.join(release, 'win-unpacked/resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64', file)).size > 0, `keep required terminal runtime ${file}`);
+}
+for (const file of ['bootstrap.ps1', 'notify.ps1', 'remote-worker.py', 'ssh-askpass.exe', 'ssh-askpass.cjs', 'ssh-askpass.sh', 'file-clipboard.exe']) {
+  assert.ok(fs.statSync(path.join(release, 'win-unpacked/resources/integration', file)).size > 0, `keep required integration ${file}`);
+}
+assert.ok(!fs.readdirSync(path.join(release, 'win-unpacked/resources/integration')).some(file => file === '__pycache__' || /\.(pyc|cs)$/.test(file)), 'integration ships runtime helpers, not build sources or Python caches');
+console.log('PASS: lean x64 package retains the PTY/SSH/clipboard runtime and excludes debug/build/other-platform files');

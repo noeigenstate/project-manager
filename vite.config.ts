@@ -11,5 +11,5 @@ export default defineConfig(({ command }) => ({
   }],
   base: './',
   server: { host: '127.0.0.1', port: 5178, strictPort: true, watch: { ignored: ['**/.test-output/**', '**/release/**'] } },
-  build: { target: 'es2022', sourcemap: true, chunkSizeWarningLimit: 750 },
+  build: { target: 'es2022', chunkSizeWarningLimit: 750 },
 }));

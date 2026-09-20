@@ -1,7 +1,7 @@
 {
   "name": "project-grid",
   "productName": "Project Grid",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "多个项目、多个真实终端，Codex 完成后一眼可见。",
   "author": "Project Grid",
   "license": "MIT",
@@ -24,6 +24,7 @@
     "test:completion": "node scripts/completion-smoke.mjs",
     "test:editor-terminals": "node scripts/editor-terminals-smoke.mjs",
     "test:themes-markdown": "node scripts/themes-markdown-smoke.mjs",
+    "test:visual": "node scripts/visual-smoke.mjs",
     "dist": "node -e \"require('electron')\" && npm run build && electron-builder --win --x64 --publish never",
     "pack": "node -e \"require('electron')\" && npm run build && electron-builder --win --dir --x64"
   },
@@ -63,12 +64,19 @@
       "dist/**/*",
       "electron/**/*",
       "assets/**/*",
-      "package.json"
+      "package.json",
+      "!**/*.map",
+      "!node_modules/node-pty/{src,third_party,scripts,typings}/**/*",
+      "!node_modules/node-pty/prebuilds/{darwin-*,linux-*,win32-arm64}/**/*",
+      "!node_modules/node-pty/lib/*.test.js",
+      "!node_modules/node-pty/binding.gyp",
+      "!node_modules/node-addon-api/**/*"
     ],
     "extraResources": [
       {
         "from": "integration",
-        "to": "integration"
+        "to": "integration",
+        "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc", "!**/*.cs"]
       }
     ],
     "asarUnpack": [
