@@ -1,7 +1,7 @@
 {
   "name": "project-grid",
   "productName": "Project Grid",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "description": "多个项目、多个真实终端，Codex 完成后一眼可见。",
   "author": "Project Grid",
   "license": "MIT",
@@ -22,6 +22,7 @@
     "test:workspace": "node scripts/workspace-smoke.mjs",
     "test:motion": "node scripts/focus-motion-smoke.mjs",
     "test:completion": "node scripts/completion-smoke.mjs",
+    "test:editor-terminals": "node scripts/editor-terminals-smoke.mjs",
     "dist": "node -e \"require('electron')\" && npm run build && electron-builder --win --x64 --publish never",
     "pack": "node -e \"require('electron')\" && npm run build && electron-builder --win --dir --x64"
   },

@@ -1,12 +1,14 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { TextDecoder } = require('node:util');
+const { randomUUID } = require('node:crypto');
 
 const PAGE_SIZE = 200;
 const TEXT_PAGE_BYTES = 256 * 1024;
 const IMAGE_TYPES = { '.png': 'image/png', '.apng': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.jpe': 'image/jpeg', '.jfif': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp', '.avif': 'image/avif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 const VIDEO_TYPES = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.ogv': 'video/ogg', '.ogg': 'video/ogg', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo' };
 const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
+const fileRevision = stat => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
 
 function imageTypeFromBytes(bytes) {
   if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
@@ -55,7 +57,7 @@ async function readProjectFile(project, relativePath, pageIndex = 0) {
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error('只能预览普通文件。');
-    const base = { path: relativePath, name: path.basename(relativePath), size: stat.size, modifiedAt: stat.mtimeMs };
+    const base = { path: relativePath, name: path.basename(relativePath), size: stat.size, modifiedAt: stat.mtimeMs, revision: fileRevision(stat) };
     const extension = path.extname(relativePath).toLowerCase();
     const isHtml = extension === '.html' || extension === '.htm';
     const signature = Buffer.alloc(Math.min(stat.size, 64));
@@ -106,4 +108,44 @@ async function readProjectFile(project, relativePath, pageIndex = 0) {
   } finally { await handle.close(); }
 }
 
-module.exports = { listDirectory, readProjectFile, resolveProjectPath, IMAGE_TYPES, VIDEO_TYPES, TEXT_PAGE_BYTES };
+async function saveProjectFile(project, relativePath, pageIndex, revision, content) {
+  if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 1024 * 1024) throw new Error('本次编辑内容超过 1 MB，请分段保存。');
+  if (typeof revision !== 'string') throw new Error('请重新读取文件后编辑。');
+  const preview = await readProjectFile(project, relativePath, pageIndex);
+  if (!['text', 'html'].includes(preview.kind)) throw new Error('此文件不支持文本编辑。');
+  if (preview.revision !== revision) throw new Error('文件已被其他程序修改，请刷新后重新编辑，避免覆盖新内容。');
+  const resolved = await resolveProjectPath(project, relativePath);
+  const temporary = path.join(path.dirname(resolved), `.project-grid-edit-${randomUUID()}.tmp`);
+  let source = await fs.open(resolved, 'r+');
+  let destination;
+  try {
+    const stat = await source.stat();
+    if (fileRevision(stat) !== revision) throw new Error('文件已变化，请刷新后重新编辑。');
+    // Textareas normalize line endings; retain the source file's convention.
+    const normalized = preview.content.includes('\r\n') ? content.replace(/\r?\n/g, '\r\n') : content;
+    let bytes = Buffer.from(normalized, preview.page.encoding === 'utf-8' ? 'utf8' : 'utf16le');
+    if (preview.page.encoding === 'utf-16be') bytes = bytes.swap16();
+    destination = await fs.open(temporary, 'wx', stat.mode);
+    const copyRange = async (start, end) => {
+      const buffer = Buffer.alloc(65536);
+      for (let offset = start; offset < end;) {
+        const { bytesRead } = await source.read(buffer, 0, Math.min(buffer.length, end - offset), offset);
+        if (!bytesRead) throw new Error('保存时文件发生变化，请刷新后重试。');
+        await destination.writeFile(buffer.subarray(0, bytesRead)); offset += bytesRead;
+      }
+    };
+    await copyRange(0, preview.page.byteStart);
+    await destination.writeFile(bytes);
+    await copyRange(preview.page.byteEnd, stat.size);
+    await destination.chmod(stat.mode); await destination.sync(); await destination.close(); destination = null;
+    await source.close(); source = null;
+    if (fileRevision(await fs.stat(resolved)) !== revision) throw new Error('文件已被其他程序修改，本次保存已取消。');
+    await fs.rename(temporary, resolved);
+  } finally {
+    await source?.close(); await destination?.close();
+    await fs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
+  }
+  return readProjectFile(project, relativePath, pageIndex);
+}
+
+module.exports = { listDirectory, readProjectFile, saveProjectFile, resolveProjectPath, IMAGE_TYPES, VIDEO_TYPES, TEXT_PAGE_BYTES };

@@ -6,8 +6,9 @@ const { records, sameDirectory } = require('./session-restore.cjs');
 // Only interactive rollout files can own a project card. A child agent can
 // inherit notify, but its completion does not end the interactive parent turn.
 class CodexActivityReader {
-  constructor(cwd, home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), since = Date.now()) {
+  constructor(cwd, home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), since = Date.now(), options = {}) {
     this.cwd = cwd; this.directory = path.join(home, 'sessions'); this.since = since;
+    this.options = options; this.boundThread = null;
     this.offset = 0; this.buffer = Buffer.alloc(0); this.skipping = false;
     this.snapshot = null; this.nextDiscovery = 0;
   }
@@ -22,7 +23,8 @@ class CodexActivityReader {
         const filename = path.join(folder, entry.name);
         if (entry.isDirectory()) await visit(filename, depth + 1);
         else if (entry.isFile() && /^rollout-.*\.jsonl$/.test(entry.name)) {
-          try { const stat = await fs.stat(filename); if (stat.mtimeMs >= this.since - 2000) candidates.push({ filename, modified: stat.mtimeMs }); } catch {}
+          if (this.boundThread && !entry.name.includes(this.boundThread)) continue;
+          try { const stat = await fs.stat(filename); if (this.boundThread || stat.mtimeMs >= this.since - 2000) candidates.push({ filename, modified: stat.mtimeMs }); } catch {}
         }
       }
     };
@@ -33,7 +35,7 @@ class CodexActivityReader {
       try {
         for await (const record of records(item.filename)) {
           const meta = record.payload;
-          if (record.type === 'session_meta' && ['cli', 'vscode'].includes(meta?.source || 'cli') && sameDirectory(meta?.cwd, this.cwd) && /^[a-f\d-]{36}$/i.test(meta?.id || '')) {
+          if (record.type === 'session_meta' && ['cli', 'vscode'].includes(meta?.source || 'cli') && sameDirectory(meta?.cwd, this.cwd) && /^[a-f\d-]{36}$/i.test(meta?.id || '') && (!this.boundThread || meta.id === this.boundThread)) {
             this.filename = item.filename;
             this.offset = 0; this.buffer = Buffer.alloc(0); this.skipping = false;
             this.snapshot = { threadId: meta.id, turnId: null, state: 'unknown', updatedAt: 0 };
@@ -56,6 +58,9 @@ class CodexActivityReader {
     }
   }
   async read() {
+    const threadId = this.options.threadId?.() || null;
+    if (threadId !== this.boundThread) { this.boundThread = threadId; this.filename = null; this.snapshot = null; this.offset = 0; this.buffer = Buffer.alloc(0); this.skipping = false; this.nextDiscovery = 0; }
+    if (this.options.requireBinding?.() && !threadId) return null;
     if (!this.filename || this.snapshot.state !== 'working') await this.discover();
     if (!this.filename) return null;
     const file = await fs.open(this.filename, 'r');

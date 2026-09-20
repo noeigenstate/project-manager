@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowClockwise, ArrowSquareOut, CaretLeft, CaretRight, Copy, FileText, FilmStrip, Globe, Image as ImageIcon, MagnifyingGlassMinus, MagnifyingGlassPlus, SpinnerGap, Terminal, X } from '@phosphor-icons/react';
+import { ArrowClockwise, ArrowSquareOut, CaretLeft, CaretRight, Copy, FileText, FilmStrip, FloppyDisk, Globe, Image as ImageIcon, MagnifyingGlassMinus, MagnifyingGlassPlus, PencilSimple, SpinnerGap, Terminal, X } from '@phosphor-icons/react';
 import type { FilePreview as Preview, Result } from './types';
 
 function TextContent({ content }: { content: string }) {
@@ -29,8 +29,9 @@ function fileSize(bytes: number) {
   return `${(bytes / 1024 ** unit).toFixed(unit ? 1 : 0)} ${units[unit]}`;
 }
 
-export function FilePreview({ projectId, filePath, onClose, onError }: {
+export function FilePreview({ projectId, filePath, onClose, onError, registerGuard }: {
   projectId: string; filePath: string; onClose: () => void; onError: (message: string) => void;
+  registerGuard: (guard: (() => Promise<boolean>) | null) => void;
 }) {
   const [loaded, setLoaded] = useState<{ key: string; result: Result<Preview> } | null>(null);
   const [revision, setRevision] = useState(0);
@@ -42,6 +43,12 @@ export function FilePreview({ projectId, filePath, onClose, onError }: {
   const [videoError, setVideoError] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [pageInput, setPageInput] = useState('1');
+  const [editing, setEditing] = useState(false), [draft, setDraft] = useState(''), [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const savingTask = useRef<Promise<boolean> | null>(null);
+  const guard = useRef<() => Promise<boolean>>(async () => true);
+  const dirtyRef = useRef(false);
+  const editor = useRef<HTMLTextAreaElement>(null);
   const key = `${projectId}:${filePath}:${pageIndex}`;
   const preview = loaded?.key === key && loaded.result.ok ? loaded.result.value : null;
   const error = loaded?.key === key && !loaded.result.ok ? loaded.result.error : null;
@@ -49,7 +56,42 @@ export function FilePreview({ projectId, filePath, onClose, onError }: {
   const previewUrl = preview && 'url' in preview ? preview.url : null;
   const text = preview?.kind === 'text' || preview?.kind === 'html' ? preview.content : null;
   const textPage = preview?.kind === 'text' || preview?.kind === 'html' ? preview.page : null;
-  const showingText = preview?.kind === 'text' || (preview?.kind === 'html' && mode === 'source');
+  const showingText = preview?.kind === 'text' || (preview?.kind === 'html' && (mode === 'source' || editing));
+  const dirty = editing && draft !== (text || '').replace(/\r\n/g, '\n');
+  dirtyRef.current = dirty;
+
+  const save = (): Promise<boolean> => {
+    if (savingTask.current) return savingTask.current;
+    if (!preview || !textPage || !editing || !dirty) return Promise.resolve(true);
+    setSaving(true); setSaveMessage('');
+    const task = window.projectGrid.saveFile(projectId, filePath, textPage.index, preview.revision, draft).then(result => {
+      if (!result.ok) { setSaveMessage(result.error); return false; }
+      setLoaded({ key, result });
+      if ('content' in result.value) setDraft(result.value.content.replace(/\r\n/g, '\n'));
+      dirtyRef.current = false; window.projectGrid.editorDirty(false);
+      setSaveMessage('已保存'); return true;
+    }).catch(error => { setSaveMessage(String(error.message || error)); return false; })
+      .finally(() => { setSaving(false); savingTask.current = null; });
+    savingTask.current = task; return task;
+  };
+  guard.current = async () => {
+    if (savingTask.current) return savingTask.current;
+    if (!dirtyRef.current) return true;
+    const result = await window.projectGrid.confirmEditorClose(filePath);
+    if (!result.ok || result.value === 'cancel') return false;
+    if (result.value === 'save') return save();
+    dirtyRef.current = false; window.projectGrid.editorDirty(false);
+    setDraft((text || '').replace(/\r\n/g, '\n')); return true;
+  };
+  useEffect(() => {
+    registerGuard(() => guard.current());
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (dirtyRef.current) { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => { registerGuard(null); window.projectGrid.editorDirty(false); window.removeEventListener('beforeunload', beforeUnload); };
+  }, [registerGuard]);
+  useEffect(() => { window.projectGrid.editorDirty(dirty || saving, projectId, filePath); }, [dirty, saving, projectId, filePath]);
+  useEffect(() => { if (editing) editor.current?.focus(); }, [editing]);
+  const navigate = async (action: () => void) => { if (await guard.current()) { setEditing(false); setSaveMessage(''); action(); } };
 
   useEffect(() => { setImageError(false); setVideoError(false); }, [previewUrl]);
   useEffect(() => { if (textPage) setPageInput(String(textPage.index + 1)); }, [textPage?.index]);
@@ -70,7 +112,13 @@ export function FilePreview({ projectId, filePath, onClose, onError }: {
   const Icon = preview?.kind === 'image' ? ImageIcon : preview?.kind === 'video' ? FilmStrip : preview?.kind === 'html' ? Globe : FileText;
 
   let body;
-  if (loading && !preview) body = <div className="file-preview-message"><SpinnerGap size={22} className="loading-spinner" />正在读取文件…</div>;
+  if (editing && text !== null) body = <textarea ref={editor} className="file-text-editor" aria-label="文件编辑器" value={draft} spellCheck={false} wrap="off" disabled={saving}
+    onChange={event => { setDraft(event.target.value); setSaveMessage(''); }} onFocus={() => { window.projectGrid.terminalFocus(projectId, false); window.projectGrid.fileTreeFocus(projectId, false); }}
+    onKeyDown={event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); event.stopPropagation(); void save(); }
+      if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey) { event.preventDefault(); document.execCommand('insertText', false, '  '); }
+    }} />;
+  else if (loading && !preview) body = <div className="file-preview-message"><SpinnerGap size={22} className="loading-spinner" />正在读取文件…</div>;
   else if (error) body = <div className="file-preview-message" role="status"><FileText size={28} /><p>{error}</p><button className="button secondary small" onClick={() => setRevision(r => r + 1)}>重试</button></div>;
   else if (preview?.kind === 'image') body = imageError
     ? <div className="file-preview-message" role="status"><ImageIcon size={28} /><p>图片无法显示，请确认文件完整后刷新。</p><button className="button secondary small" onClick={() => setRevision(r => r + 1)}>重新加载图片</button></div>
@@ -88,7 +136,7 @@ export function FilePreview({ projectId, filePath, onClose, onError }: {
   else body = <div className="file-preview-message"><FileText size={28} /><p>{preview?.kind === 'unsupported' ? preview.reason : '无法预览此文件。'}</p><button className="button secondary small" onClick={openInCode}><ArrowSquareOut size={14} />在 VS Code 打开</button></div>;
 
   return <section className="file-preview" aria-label="文件预览">
-    <div className="file-tabs"><button className="terminal-tab" onClick={onClose}><Terminal size={15} />返回终端</button><div className="selected-file-tab"><Icon size={15} /><span>{filePath.split('/').at(-1)}</span><button className="icon-button" title="关闭文件预览" aria-label="关闭文件预览" onClick={onClose}><X size={14} /></button></div><span className="preview-readonly">{preview?.kind === 'image' ? '图片预览' : preview?.kind === 'video' ? '视频预览' : preview?.kind === 'html' ? '网页预览' : '只读预览'}</span></div>
+    <div className="file-tabs"><button className="terminal-tab" onClick={onClose}><Terminal size={15} />返回终端</button><div className="selected-file-tab"><Icon size={15} /><span>{filePath.split('/').at(-1)}{dirty ? ' •' : ''}</span><button className="icon-button" title="关闭文件预览" aria-label="关闭文件预览" onClick={onClose}><X size={14} /></button></div><span className="preview-readonly">{editing ? dirty ? '未保存' : '编辑中' : preview?.kind === 'image' ? '图片预览' : preview?.kind === 'video' ? '视频预览' : preview?.kind === 'html' ? '网页预览' : '文本预览'}</span></div>
     <div className="file-preview-toolbar"><span title={filePath}>{filePath.split('/').join('  /  ')}</span><div>
       {preview?.kind === 'image' && <div className="image-controls">
         <button className="preview-option" aria-pressed={zoom === 'fit'} onClick={() => setZoom('fit')}>适应窗口</button>
@@ -97,18 +145,20 @@ export function FilePreview({ projectId, filePath, onClose, onError }: {
         <span className="zoom-label">{zoom === 'fit' ? '自动' : `${Math.round(zoom * 100)}%`}</span>
         <button className="icon-button" title="放大图片" aria-label="放大图片" onClick={() => changeZoom(.25)}><MagnifyingGlassPlus size={16} /></button>
       </div>}
-      {preview?.kind === 'html' && <div className="preview-mode"><button className="preview-option" aria-pressed={mode === 'preview'} onClick={() => setMode('preview')}>页面</button><button className="preview-option" aria-pressed={mode === 'source'} onClick={() => setMode('source')}>源码</button></div>}
-      <button className="icon-button" title="刷新文件" aria-label="刷新文件" onClick={() => setRevision(r => r + 1)}><ArrowClockwise size={16} /></button>
-      {text !== null && <button className="icon-button" title={textPage && textPage.count > 1 ? '复制当前页内容' : '复制文件内容'} aria-label={textPage && textPage.count > 1 ? '复制当前页内容' : '复制文件内容'} onClick={async () => { const result = await window.projectGrid.copy(text); if (!result.ok) onError(result.error); }}><Copy size={16} /></button>}
+      {preview?.kind === 'html' && <div className="preview-mode"><button className="preview-option" aria-pressed={mode === 'preview' && !editing} onClick={() => void navigate(() => setMode('preview'))}>页面</button><button className="preview-option" aria-pressed={mode === 'source' || editing} onClick={() => setMode('source')}>源码</button></div>}
+      {text !== null && (!editing ? <button className="preview-option editor-action" disabled={loading} onClick={() => { setDraft(text.replace(/\r\n/g, '\n')); setEditing(true); setSaveMessage(''); }}><PencilSimple size={15} />{textPage && textPage.count > 1 ? '编辑当前段' : '编辑'}</button> : <><button className="preview-option editor-action" disabled={!dirty || saving} onClick={() => void save()} title="保存文件 · Ctrl+S"><FloppyDisk size={15} />{saving ? '保存中…' : '保存'}</button><button className="preview-option" disabled={saving} onClick={() => void navigate(() => {})}>结束编辑</button></>)}
+      <button className="icon-button" disabled={saving} title="刷新文件" aria-label="刷新文件" onClick={() => void navigate(() => setRevision(r => r + 1))}><ArrowClockwise size={16} /></button>
+      {text !== null && <button className="icon-button" title={textPage && textPage.count > 1 ? '复制当前页内容' : '复制文件内容'} aria-label={textPage && textPage.count > 1 ? '复制当前页内容' : '复制文件内容'} onClick={async () => { const result = await window.projectGrid.copy(editing ? draft : text); if (!result.ok) onError(result.error); }}><Copy size={16} /></button>}
       <button className="icon-button" title="在 VS Code 打开文件" aria-label="在 VS Code 打开文件" onClick={openInCode}><ArrowSquareOut size={16} /></button>
     </div></div>
     {body}
-    {showingText && textPage && textPage.count > 1 && <form className="text-pagination" onSubmit={event => { event.preventDefault(); const value = Number(pageInput); if (Number.isSafeInteger(value)) setPageIndex(Math.max(0, Math.min(textPage.count - 1, value - 1))); }}>
-      <span>分段读取 · 本页行号</span><button type="button" className="preview-option" disabled={!textPage.index || loading} onClick={() => setPageIndex(0)}>首页</button>
-      <button type="button" className="icon-button" aria-label="上一页" disabled={!textPage.index || loading} onClick={() => setPageIndex(textPage.index - 1)}><CaretLeft size={15} /></button>
+    {saveMessage && <div className={`editor-message ${saveMessage === '已保存' ? '' : 'editor-error'}`} role="status">{saveMessage}</div>}
+    {showingText && textPage && textPage.count > 1 && <form className="text-pagination" onSubmit={event => { event.preventDefault(); const value = Number(pageInput); if (Number.isSafeInteger(value)) void navigate(() => setPageIndex(Math.max(0, Math.min(textPage.count - 1, value - 1)))); }}>
+      <span>分段读取 · 编辑仅影响当前段</span><button type="button" className="preview-option" disabled={!textPage.index || loading || saving} onClick={() => void navigate(() => setPageIndex(0))}>首页</button>
+      <button type="button" className="icon-button" aria-label="上一页" disabled={!textPage.index || loading || saving} onClick={() => void navigate(() => setPageIndex(textPage.index - 1))}><CaretLeft size={15} /></button>
       <label>第 <input aria-label="文件页码" type="number" min={1} max={textPage.count} value={pageInput} onChange={event => setPageInput(event.target.value)} /> / {textPage.count} 页</label><button type="submit" className="preview-option" disabled={loading}>跳转</button>
-      <button type="button" className="icon-button" aria-label="下一页" disabled={textPage.index === textPage.count - 1 || loading} onClick={() => setPageIndex(textPage.index + 1)}><CaretRight size={15} /></button>
-      <button type="button" className="preview-option" disabled={textPage.index === textPage.count - 1 || loading} onClick={() => setPageIndex(textPage.count - 1)}>末页</button>
+      <button type="button" className="icon-button" aria-label="下一页" disabled={textPage.index === textPage.count - 1 || loading || saving} onClick={() => void navigate(() => setPageIndex(textPage.index + 1))}><CaretRight size={15} /></button>
+      <button type="button" className="preview-option" disabled={textPage.index === textPage.count - 1 || loading || saving} onClick={() => void navigate(() => setPageIndex(textPage.count - 1))}>末页</button>
     </form>}
     <div className="file-preview-footer"><span>{preview ? fileSize(preview.size) : ''}{preview?.kind === 'image' && dimensions.width > 0 ? ` · ${dimensions.width} × ${dimensions.height}` : ''}{showingText && textPage ? ` · ${textPage.encoding.toUpperCase()}` : ''}</span><span>预览文件时，终端任务继续运行</span></div>
   </section>;

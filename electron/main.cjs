@@ -8,7 +8,8 @@ const { randomUUID } = require('node:crypto');
 const pty = require('node-pty');
 const { WorkspaceStore } = require('./state.cjs');
 const { createEventServer } = require('./events.cjs');
-const { listDirectory, readProjectFile, resolveProjectPath, VIDEO_TYPES } = require('./project-files.cjs');
+const { listDirectory, readProjectFile, saveProjectFile, resolveProjectPath, VIDEO_TYPES } = require('./project-files.cjs');
+const { projectPaths } = require('./project-paths.cjs');
 const { isTerminalResponse, acceptShellEvent, SubmissionTracker } = require('./terminal-input.cjs');
 const { createTerminalEnvironment } = require('./terminal-env.cjs');
 const { PreviewResources, resourceResponse } = require('./preview-resources.cjs');
@@ -19,6 +20,7 @@ const { SSHAuthServer } = require('./ssh-auth.cjs');
 const { RemoteConnection } = require('./remote-connection.cjs');
 const { recentSession, resumeCommand } = require('./session-restore.cjs');
 const { CodexActivityReader, monitorActivity } = require('./codex-activity.cjs');
+const { TerminalTitleTracker } = require('./terminal-title.cjs');
 const { FileOperations } = require('./file-operations.cjs');
 const { VoiceManager } = require('./voice.cjs');
 const { windowsAppId, materializeIcon, repairShortcuts, refreshSearchIcons } = require('./windows-integration.cjs');
@@ -51,31 +53,38 @@ let activeFileTree = null;
 let fileOperations, fileProgress = null;
 let voiceManager;
 let attentionTimer;
+let editorDirty = false, editorCloseRequest = null, editorFile = null;
+const fileSaves = new Set();
 const powershellPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 
 function send(channel, data) { if (window && !window.isDestroyed()) window.webContents.send(channel, data); }
 function findProject(id) {
   if (typeof id !== 'string') throw new Error('无效的项目。');
-  const project = store.projects.find(p => p.id === id);
+  const project = store.findTerminal(id)?.project;
   if (!project) throw new Error('项目不存在。');
   return project;
 }
 function publicState() {
   return {
     projects: store.projects.map(p => {
-      const s = sessions.get(p.id);
+      const terminals = terminalIds(p).map((id, index) => {
+        const s = sessions.get(id);
+        return { id, title: `终端 ${index + 1}`, sessionId: s?.sessionId || null, status: s?.status || 'stopped', codexActive: s?.codexActive || false,
+          codexActivity: s?.codexActivity || 'unknown', shellReady: !!s?.ready && !s?.inputDirty, codexAvailable: s?.codexAvailable ?? null,
+          lastActivityAt: s?.lastActivityAt || null, lastCompletedAt: s?.lastCompletedAt || null, error: s?.error || startupErrors.get(id) || null };
+      });
+      const first = terminals[0];
+      const activeCodex = terminals.filter(item => item.codexActive);
+      const activity = activeCodex.some(item => item.codexActivity === 'working') ? 'working' : activeCodex.some(item => item.codexActivity === 'interrupted') ? 'interrupted' : activeCodex.length && activeCodex.every(item => item.codexActivity === 'complete') ? 'complete' : 'unknown';
+      const status = activeCodex.length ? 'codex' : terminals.some(item => item.status === 'shell') ? 'shell' : terminals.some(item => item.status === 'starting') ? 'starting' : first.status;
       return {
         id: p.id, name: p.name, path: p.path, unread: p.unread, done: p.done, lastCompletedAt: p.lastCompletedAt, awaitingCompletion: p.completionArmed,
         kind: p.kind || 'local', ssh: p.ssh || null,
         branch: branches.get(p.id) || '',
-        sessionId: s?.sessionId || null,
-        status: s ? s.status : 'stopped',
-        codexActive: s?.codexActive || false,
-        codexActivity: s?.codexActivity || 'unknown',
-        shellReady: !!s?.ready && !s?.inputDirty,
-        codexAvailable: s?.codexAvailable ?? null,
-        lastActivityAt: s?.lastActivityAt || null,
-        error: s?.error || startupErrors.get(p.id) || null,
+        terminals, sessionId: first.sessionId, status,
+        codexActive: activeCodex.length > 0, codexActivity: activity,
+        shellReady: first.shellReady, codexAvailable: first.codexAvailable,
+        lastActivityAt: first.lastActivityAt, error: terminals.find(item => item.error)?.error || null,
       };
     }),
     settings: store.settings,
@@ -83,6 +92,15 @@ function publicState() {
     platform: process.platform,
     version: app.getVersion(),
   };
+}
+
+function terminalIds(project) {
+  const extra = (project.terminals || []).map(item => item.id);
+  return !sessions.has(project.id) && project.restore?.terminal === false && extra.length ? extra : [project.id, ...extra];
+}
+
+function disposeProjectTerminals(project) {
+  for (const id of [project.id, ...(project.terminals || []).map(item => item.id)]) { restorePlans.delete(id); disposeTerminal(id); startupErrors.delete(id); }
 }
 function updateIndicators() {
   const unread = store.projects.filter(p => p.unread > 0).length;
@@ -134,18 +152,18 @@ function notifyCompletion(project) {
 function onEvent(event) {
   const s = sessions.get(event.projectId);
   if (!s || event.sessionKey !== s.sessionKey) return;
-  const project = store.projects.find(p => p.id === event.projectId);
+  const project = store.projects.find(p => p.id === s.projectId);
   if (!project) return;
   if (event.type !== 'turn-complete' && !acceptShellEvent(s, event)) return;
   if (event.type === 'shell-ready' || event.type === 'shell-prompt') {
     s.activityMonitor?.stop(); s.activityMonitor = null;
-    s.codexActive = false; s.codexActivity = 'unknown';
+    s.codexActive = false; s.codexActivity = 'unknown'; s.reportedThreadId = null;
     s.ready = event.type === 'shell-prompt';
     s.inputDirty = false;
     s.status = 'shell';
     s.codexAvailable = event.codexAvailable === true;
     if (typeof event.codexHome === 'string') s.codexHome = event.codexHome;
-    if (!quitting && typeof event.cwd === 'string') store.setRestore(project.id, { cwd: event.cwd });
+    if (!quitting && typeof event.cwd === 'string') store.setRestore(s.terminalId, { cwd: event.cwd });
   } else if (event.type === 'codex-started') {
     s.ready = false;
     s.codexActive = true;
@@ -155,33 +173,36 @@ function onEvent(event) {
     s.codexActivity = 'unknown'; s.activitySince = Date.now(); s.activityInputAt = 0;
     const remoteSince = Number.isFinite(event.sentAt) ? event.sentAt : s.activitySince;
     s.activityMonitor?.stop();
-    const reader = project.kind === 'ssh' ? null : new CodexActivityReader(event.cwd || project.path, event.codexHome || s.codexHome, s.activitySince);
+    const reader = project.kind === 'ssh' ? null : new CodexActivityReader(event.cwd || project.path, event.codexHome || s.codexHome, s.activitySince, { threadId: () => s.reportedThreadId, requireBinding: () => (project.terminals?.length || 0) > 0 });
     s.activityMonitor = monitorActivity(
-      () => reader ? reader.read() : s.terminal.request('codex-status', { since: remoteSince }),
+      () => reader ? reader.read() : project.terminals?.length && !s.reportedThreadId ? Promise.resolve(null) : s.terminal.request('codex-status', { since: remoteSince, threadId: s.reportedThreadId }),
       snapshot => {
-        if (sessions.get(project.id) !== s || !s.codexActive) return;
+        if (sessions.get(s.terminalId) !== s || !s.codexActive) return;
         if (!reader) snapshot = { ...snapshot, updatedAt: snapshot.updatedAt + s.activitySince - remoteSince };
         // Resumed history and a slow response from before a new submission
         // must not make newly running work look complete.
         if (snapshot.updatedAt < Math.max(s.activitySince, s.activityInputAt)) return;
         s.rootThreadId = snapshot.threadId; s.activeTurnId = snapshot.turnId;
+        store.setRestore(s.terminalId, { threadId: snapshot.threadId });
         s.codexActivity = snapshot.state;
         if (snapshot.state === 'working') store.expectCompletion(project.id);
         else if (snapshot.state === 'complete' && snapshot.turnId) {
+          s.lastCompletedAt = snapshot.updatedAt;
           if (!project.done && !project.seenEvents.includes(`${snapshot.threadId}:${snapshot.turnId}`)) store.expectCompletion(project.id);
           if (store.complete(project.id, `${snapshot.threadId}:${snapshot.turnId}`, snapshot.updatedAt)) notifyCompletion(project);
         } else if (snapshot.state === 'interrupted') store.expectCompletion(project.id, false);
         broadcast();
       },
     );
-    store.setRestore(project.id, { terminal: true, codex: true, cwd: event.cwd });
+    store.setRestore(s.terminalId, { terminal: true, codex: true, cwd: event.cwd });
     // Unread completion is independent of session activity. It survives new turns.
   } else if (event.type === 'codex-exited') {
     s.activityMonitor?.stop(); s.activityMonitor = null; s.codexActivity = 'unknown';
     s.ready = false;
     s.codexActive = false;
     s.status = 'shell';
-    if (!quitting) store.setRestore(project.id, { codex: false });
+    s.reportedThreadId = null;
+    if (!quitting) store.setRestore(s.terminalId, { codex: false });
     const code = Number(event.exitCode);
     if (code && code !== 130 && code !== -1073741510) s.error = `Codex 已退出（代码 ${code}），请查看终端输出。`;
   } else if (event.type === 'turn-complete') {
@@ -195,16 +216,18 @@ function onEvent(event) {
 }
 
 async function resumeAfterPrompt(project, session) {
-  const plan = restorePlans.get(project.id);
+  const plan = restorePlans.get(session.terminalId);
   if (!plan || !session.ready || session.inputDirty) return;
-  restorePlans.delete(project.id);
+  restorePlans.delete(session.terminalId);
   if (!session.codexAvailable) return;
   try {
-    const info = project.kind === 'ssh' ? await session.terminal.request('resume-info') : await recentSession(project.restore?.cwd || project.path, session.codexHome);
+    const restore = store.findTerminal(session.terminalId)?.record.restore;
+    const info = project.kind === 'ssh' ? await session.terminal.request('resume-info', { threadId: restore?.threadId }) : await recentSession(restore?.cwd || project.path, session.codexHome, restore?.threadId);
     // Legacy versions did not record which process owned a conversation. Open
     // that history, but do not submit work to a possibly still-running session.
-    const command = resumeCommand(info && !plan.codex ? { ...info, state: 'unknown' } : info, plan.codex);
-    if (command && sessions.get(project.id) === session && session.ready && !session.inputDirty && !session.codexActive) {
+    const remembered = info || (restore?.threadId ? { id: restore.threadId, state: 'unknown' } : null);
+    const command = project.terminals?.length && !restore?.threadId ? 'codex\r' : resumeCommand(remembered && !plan.codex ? { ...remembered, state: 'unknown' } : remembered, plan.codex);
+    if (command && sessions.get(session.terminalId) === session && session.ready && !session.inputDirty && !session.codexActive) {
       // Opening completed history is not new input. Only the automatic
       // continuation of interrupted work may produce another completion alert.
       store.expectCompletion(project.id, info?.state === 'interrupted' && plan.codex);
@@ -217,7 +240,7 @@ async function resumeAfterPrompt(project, session) {
 
 function remoteFor(id) {
   const project = findProject(id);
-  const session = sessions.get(id);
+  const session = sessions.get(id)?.terminal.connected ? sessions.get(id) : [...sessions.values()].find(item => item.projectId === project.id && item.terminal.connected);
   if (project.kind !== 'ssh' || !session || session.terminal.closed) throw new Error('请先启动终端，连接 SSH 服务器。');
   return session.terminal;
 }
@@ -238,7 +261,7 @@ function startTerminal(id) {
   if (project.kind !== 'ssh' && !fs.existsSync(project.path)) throw new Error('项目目录不存在，请重新添加。');
   const sessionId = randomUUID();
   const sessionKey = randomUUID();
-  const startPath = restorePlans.get(id)?.cwd || project.path;
+  const startPath = restorePlans.get(id)?.cwd || store.findTerminal(id)?.record.restore?.cwd || project.path;
   const bootstrapFile = project.kind === 'ssh' ? null : path.join(runtimeDir, `${sessionId}.json`);
   if (bootstrapFile) fs.writeFileSync(bootstrapFile, JSON.stringify({
     projectId: id, projectPath: startPath, sessionKey, pipeName: eventServer.name,
@@ -255,13 +278,14 @@ function startTerminal(id) {
     try { sshAskpassPath = execFileSync(helper, ['--short-path', helper], { encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim(); }
     catch { sshAskpassPath = helper; }
   }
-  const terminal = project.kind === 'ssh' ? new RemoteConnection(project, { integrationDir, auth: sshAuth, sessionKey, onEvent, codingPath: startPath, askpassPath: sshAskpassPath,
-    onReady: info => { branches.set(id, String(info.branch || '').slice(0, 120)); broadcast(); },
+  const terminal = project.kind === 'ssh' ? new RemoteConnection({ ...project, id }, { integrationDir, auth: sshAuth, sessionKey, onEvent, codingPath: startPath, askpassPath: sshAskpassPath,
+    onReady: info => { branches.set(project.id, String(info.branch || '').slice(0, 120)); broadcast(); },
   }) : pty.spawn(powershellPath, ['-NoLogo', '-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', path.join(integrationDir, 'bootstrap.ps1')], {
     name: 'xterm-256color', cols: 90, rows: 22, cwd: startPath, env, useConpty: true, useConptyDll: true,
   });
   const s = {
-    terminal, sessionId, sessionKey, bootstrapFile, status: 'starting', ready: false,
+    terminal, terminalId: id, projectId: project.id, sessionId, sessionKey, bootstrapFile, status: 'starting', ready: false,
+    titles: new TerminalTitleTracker(), reportedThreadId: null,
     codexActive: false, codexAvailable: null, seq: 0, chunks: [], bytes: 0, pending: '',
     flushTimer: null, lastActivityAt: Date.now(), error: null, submissions: new SubmissionTracker(),
   };
@@ -277,6 +301,12 @@ function startTerminal(id) {
   s.flush = flush;
   terminal.onData(data => {
     if (sessions.get(id) !== s) return;
+    for (const threadId of s.titles.write(data)) {
+      if (s.reportedThreadId !== threadId) {
+        s.reportedThreadId = threadId;
+        if (s.codexActive) { s.codexActivity = 'unknown'; s.activityInputAt = 0; store.setRestore(id, { threadId }); void s.activityMonitor?.poll(); }
+      }
+    }
     s.chunks.push(data); s.bytes += data.length; s.pending += data;
     while (s.bytes > 1024 * 1024 && s.chunks.length > 1) s.bytes -= s.chunks.shift().length;
     s.lastActivityAt = Date.now();
@@ -324,19 +354,21 @@ function listen(channel, fn) {
   ipcMain.on(channel, (event, ...args) => { try { checkSender(event); fn(...args); } catch (error) { report(error); } });
 }
 
-async function confirmTerminalClose(id, verb) {
+async function confirmTerminalClose(id, verb, all = false) {
   const project = findProject(id);
-  const session = sessions.get(id);
-  if (!session || session.status === 'exited') return true;
+  const chosen = all ? [...sessions.values()].filter(item => item.projectId === project.id) : [sessions.get(id)].filter(Boolean);
+  const count = chosen.filter(item => item.status !== 'exited').length;
+  if (!count) return true;
   const result = await dialog.showMessageBox(window, {
-    type: 'question', title: `${verb}项目`, message: `${verb}“${project.name}”的终端？`,
-    detail: '此终端内的 Codex 和其他运行中的命令会被结束。项目文件会保留。',
+    type: 'question', title: `${verb}${all ? '项目' : '终端'}`, message: `${verb}“${project.name}”的 ${count} 个终端？`,
+    detail: '所选终端内的 Codex 和其他运行中的命令会被结束。项目文件会保留。',
     buttons: ['取消', `确认${verb}`], defaultId: 0, cancelId: 0,
   });
   return result.response === 1;
 }
 
 async function requestQuit() {
+  if (!await allowEditorClose()) return false;
   const count = [...sessions.values()].filter(s => s.status !== 'exited').length;
   if (count) {
     const result = await dialog.showMessageBox(window, {
@@ -349,6 +381,23 @@ async function requestQuit() {
   quitting = true;
   app.quit();
   return true;
+}
+
+function allowEditorClose() {
+  if (!editorDirty || !window || window.isDestroyed()) return Promise.resolve(true);
+  if (editorCloseRequest) return editorCloseRequest.promise;
+  showWindow();
+  const id = randomUUID();
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  const timer = setTimeout(() => { if (editorCloseRequest?.id === id) { editorCloseRequest = null; resolve(false); } }, 60000);
+  editorCloseRequest = { id, promise, resolve: accepted => { clearTimeout(timer); editorCloseRequest = null; resolve(accepted); } };
+  send('editor:request-close', id);
+  return promise;
+}
+
+function affectsEditor(id, paths) {
+  return editorDirty && editorFile?.id === id && paths.some(value => editorFile.path === value || editorFile.path.startsWith(value + '/'));
 }
 
 function registerIpc() {
@@ -371,6 +420,7 @@ function registerIpc() {
     if (!updateManager.canInstall()) throw new Error('更新尚未下载完成。');
     installingUpdate = true;
     try {
+      if (!await allowEditorClose()) { installingUpdate = false; return false; }
       const count = [...sessions.values()].filter(session => session.status !== 'exited').length;
       if (count) {
         const result = await dialog.showMessageBox(window, {
@@ -402,8 +452,9 @@ function registerIpc() {
     return ids;
   });
   handle('workspace:remove', async id => {
-    if (!await confirmTerminalClose(id, '移除')) return false;
-    restorePlans.delete(id); disposeTerminal(id); previewResources.closeProject(id); store.remove(id); branches.delete(id); startupErrors.delete(id); broadcast(); return true;
+    if (editorFile?.id === id && !await allowEditorClose()) return false;
+    if (!await confirmTerminalClose(id, '移除', true)) return false;
+    disposeProjectTerminals(findProject(id)); previewResources.closeProject(id); store.remove(id); branches.delete(id); broadcast(); return true;
   });
   handle('workspace:acknowledge', id => { findProject(id); store.acknowledge(id); broadcast(); });
   handle('workspace:swap', (source, target) => { findProject(source); findProject(target); store.swapProjects(source, target); broadcast(); });
@@ -417,9 +468,22 @@ function registerIpc() {
   });
   handle('project:directory', (id, relativePath = '', offset = 0) => findProject(id).kind === 'ssh' ? remoteFor(id).request('directory', { path: relativePath, offset }) : listDirectory(findProject(id), relativePath, offset));
   handle('project:create-entry', (id, directory, name, kind) => fileOperations.create(findProject(id), directory, name, kind));
-  handle('project:rename-entry', (id, relative, name) => fileOperations.rename(findProject(id), relative, name));
-  handle('project:delete-entries', (id, paths) => fileOperations.remove(findProject(id), paths));
+  handle('project:rename-entry', async (id, relative, name) => {
+    if (affectsEditor(id, [relative]) && !await allowEditorClose()) throw new Error('已取消重命名。');
+    return fileOperations.rename(findProject(id), relative, name);
+  });
+  handle('project:delete-entries', async (id, paths) => {
+    if (Array.isArray(paths) && affectsEditor(id, paths) && !await allowEditorClose()) return { deleted: [] };
+    return fileOperations.remove(findProject(id), paths);
+  });
   handle('project:copy-entries', (id, paths) => fileOperations.copy(findProject(id), paths));
+  handle('project:copy-paths', async (id, paths, format) => {
+    const project = findProject(id);
+    const remote = project.kind === 'ssh' && format === 'absolute' ? remoteFor(id) : null;
+    if (remote) await remote.ready;
+    const value = projectPaths(project, paths, format, remote?.info.root);
+    clipboard.writeText(value); return { count: paths.length };
+  });
   handle('project:paste-entries', (id, directory) => fileOperations.paste(findProject(id), directory));
   handle('files:progress', () => fileProgress);
   handle('files:cancel', () => fileOperations.cancel());
@@ -435,6 +499,26 @@ function registerIpc() {
     return preview;
   });
   handle('project:preview-close', id => previewResources.close(id));
+  handle('project:save-file', async (id, relativePath, pageIndex, revision, content) => {
+    const project = findProject(id), key = `${project.id}:${relativePath}`;
+    if (fileSaves.has(key)) throw new Error('此文件正在保存，请稍候。');
+    if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 1024 * 1024) throw new Error('本次编辑内容超过 1 MB，请分段保存。');
+    fileSaves.add(key);
+    try {
+      const preview = project.kind === 'ssh'
+        ? await remoteFor(id).request('save-file', { path: relativePath, page: pageIndex, revision, data: Buffer.from(content, 'utf8').toString('base64') })
+        : await saveProjectFile(project, relativePath, pageIndex, revision, content);
+      if (preview.kind === 'html') return { ...preview, ...previewResources.open(project, relativePath, 'html') };
+      return preview;
+    } finally { fileSaves.delete(key); }
+  });
+  handle('editor:confirm-close', async filename => {
+    const result = await dialog.showMessageBox(window, { type: 'question', title: '未保存的修改', message: `保存对“${String(filename).slice(0, 500)}”的修改？`,
+      buttons: ['保存', '不保存', '取消'], defaultId: 0, cancelId: 2 });
+    return ['save', 'discard', 'cancel'][result.response] || 'cancel';
+  });
+  listen('editor:dirty', (value, id, filename) => { editorDirty = value === true; editorFile = editorDirty && typeof id === 'string' && typeof filename === 'string' ? { id, path: filename } : null; });
+  listen('editor:close-result', (id, accepted) => { if (editorCloseRequest?.id === id) editorCloseRequest.resolve(accepted === true); });
   handle('project:open-link', async (id, target) => {
     const project = findProject(id);
     if (project.kind === 'ssh' && !/^(https?:\/\/|www\.)/i.test(target)) {
@@ -484,6 +568,17 @@ function registerIpc() {
   };
   handle('project:code', openInCode);
   handle('terminal:start', startTerminal);
+  handle('terminal:add', id => {
+    const project = findProject(id);
+    if (!sessions.has(project.id) && !project.terminals?.length) { startTerminal(project.id); return project.id; }
+    const terminalId = store.addTerminal(project.id);
+    try { startTerminal(terminalId); return terminalId; }
+    catch (error) { store.removeTerminal(terminalId); throw error; }
+  });
+  handle('terminal:close', async id => {
+    if (!await confirmTerminalClose(id, '关闭')) return false;
+    restorePlans.delete(id); disposeTerminal(id); store.removeTerminal(id); startupErrors.delete(id); broadcast(); return true;
+  });
   handle('terminal:restart', async id => {
     if (!await confirmTerminalClose(id, '重启')) return false;
     restorePlans.delete(id);
@@ -502,7 +597,7 @@ function registerIpc() {
     if (!s?.ready || s.inputDirty) throw new Error('请先结束当前命令，并在空白终端提示符下启动 Codex。');
     if (s.codexActive) return;
     if (!s.codexAvailable) throw new Error('终端中未找到 Codex CLI，请安装后重启终端。');
-    store.markDone(id, false);
+    store.markDone(findProject(id).id, false);
     s.codexActive = true; s.status = 'codex';
     s.ready = false; s.terminal.write('codex\r'); broadcast();
   });
@@ -511,7 +606,7 @@ function registerIpc() {
     const s = sessions.get(id);
     if (s && s.status !== 'exited') {
       if (s.submissions.write(data) && s.codexActive) {
-        store.expectCompletion(id);
+        store.expectCompletion(s.projectId);
         s.codexActivity = 'working'; s.activityInputAt = Date.now();
         scheduleState();
       }
@@ -672,12 +767,12 @@ else {
     updateIndicators();
     if (!process.env.PROJECT_GRID_DATA_DIR) updateManager.start();
     if (store.settings.restoreSessions && (!process.env.PROJECT_GRID_DATA_DIR || process.env.PROJECT_GRID_TEST_RESTORE === '1')) {
-      const projects = store.projects.filter(project => !project.done && (project.restore === null || project.restore.terminal));
-      projects.forEach((project, index) => {
-        if (project.restore === null || project.restore.codex) restorePlans.set(project.id, { codex: project.restore?.codex === true, cwd: project.restore?.cwd });
+      const terminals = store.projects.filter(project => !project.done).flatMap(project => [project, ...(project.terminals || [])].filter(record => record.restore === null || record.restore?.terminal).map(record => ({ project, record })));
+      terminals.forEach(({ project, record }, index) => {
+        if (record.restore === null || record.restore.codex) restorePlans.set(record.id, { codex: record.restore?.codex === true, cwd: record.restore?.cwd });
         const timer = setTimeout(() => {
-          if (quitting || !store.settings.restoreSessions || !store.projects.some(item => item.id === project.id)) return;
-          try { startTerminal(project.id); } catch (error) { restorePlans.delete(project.id); startupErrors.set(project.id, error.message); broadcast(); }
+          if (quitting || !store.settings.restoreSessions || !store.findTerminal(record.id) || record.restore?.terminal === false) return;
+          try { startTerminal(record.id); } catch (error) { restorePlans.delete(record.id); startupErrors.set(record.id, error.message); broadcast(); }
         }, index * 300);
         timer.unref?.();
       });

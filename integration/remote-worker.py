@@ -53,7 +53,7 @@ function codex {
     executable=$(type -P codex)
     if [ -z "$executable" ]; then printf 'Codex CLI was not found on this SSH host.\n'; return 127; fi
     __pg_emit codex-started
-    "$executable" -c "notify=$PROJECT_GRID_NOTIFY_COMMAND" "$@"
+    "$executable" -c "notify=$PROJECT_GRID_NOTIFY_COMMAND" -c 'tui.terminal_title=["session-id"]' "$@"
     result=$?
     __pg_emit codex-exited "$result"
     return "$result"
@@ -98,7 +98,7 @@ def json_records(filename):
             try: yield json.loads(line)
             except (ValueError, UnicodeError): continue
 
-def recent_session(root, codex_home):
+def recent_session(root, codex_home, thread_id=None):
     directory = os.path.join(codex_home, "sessions")
     candidates = []
     for current, dirs, files in os.walk(directory):
@@ -117,6 +117,7 @@ def recent_session(root, codex_home):
             if meta.get("type") != "session_meta" or source not in ("cli", "vscode") or os.path.realpath(payload.get("cwd", "")) != root: continue
             identity = payload.get("id", "")
             if not re.fullmatch(r"[a-fA-F0-9-]{36}", identity): continue
+            if thread_id and identity != thread_id: continue
             state = "unknown"
             for record in records:
                 item = record.get("payload", {})
@@ -134,8 +135,9 @@ def recent_session(root, codex_home):
 
 class CodexActivityReader:
     """Incrementally read only the interactive parent's lifecycle records."""
-    def __init__(self, root, home, since):
+    def __init__(self, root, home, since, thread_id=None):
         self.root, self.home, self.since = root, home, since
+        self.thread_id = thread_id
         self.filename, self.snapshot = None, None
         self.offset, self.buffer, self.skipping, self.next_discovery = 0, b"", False, 0
 
@@ -147,10 +149,11 @@ class CodexActivityReader:
             dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(current, name))]
             for name in files:
                 if not (name.startswith("rollout-") and name.endswith(".jsonl")): continue
+                if self.thread_id and self.thread_id not in name: continue
                 filename = os.path.join(current, name)
                 try:
                     modified = os.stat(filename).st_mtime * 1000
-                    if modified >= self.since - 2000: candidates.append((modified, filename))
+                    if self.thread_id or modified >= self.since - 2000: candidates.append((modified, filename))
                 except OSError: pass
         for _, filename in sorted(candidates, reverse=True):
             if filename == self.filename: return
@@ -161,6 +164,7 @@ class CodexActivityReader:
                 meta = record.get("payload", {})
                 if record.get("type") != "session_meta" or meta.get("source", "cli") not in ("cli", "vscode"): continue
                 if os.path.realpath(meta.get("cwd", "")) != os.path.realpath(self.root) or not re.fullmatch(r"[a-fA-F0-9-]{36}", meta.get("id", "")): continue
+                if self.thread_id and meta.get("id") != self.thread_id: continue
                 self.filename = filename
                 self.offset, self.buffer, self.skipping = 0, b"", False
                 self.snapshot = {"threadId": meta["id"], "turnId": None, "state": "unknown", "updatedAt": 0}
@@ -218,11 +222,12 @@ class Worker:
         self.activity_reader = None
         self.activity_lock = threading.Lock()
 
-    def codex_status(self, since):
+    def codex_status(self, since, thread_id=None):
         if not isinstance(since, (int, float)) or since <= 0: raise ValueError("无效的会话时间。")
         with self.activity_lock:
-            if self.activity_reader is None or self.activity_reader.since != since:
-                self.activity_reader = CodexActivityReader(self.coding_root, self.codex_home, since)
+            if thread_id is not None and not re.fullmatch(r"[a-fA-F0-9-]{36}", thread_id): raise ValueError("无效的会话标识。")
+            if self.activity_reader is None or self.activity_reader.since != since or self.activity_reader.thread_id != thread_id:
+                self.activity_reader = CodexActivityReader(self.coding_root, self.codex_home, since, thread_id)
             return self.activity_reader.read()
 
     def initialize(self, config):
@@ -351,6 +356,7 @@ class Worker:
         meta = self.metadata(relative)
         if not meta["file"]: raise ValueError("只能预览普通文件。")
         base = {key: meta[key] for key in ("path", "name", "size", "modifiedAt")}
+        base["revision"] = self.file_revision(os.stat(self.resolve(relative)))
         extension = os.path.splitext(relative)[1].lower()
         with open(self.resolve(relative), "rb") as source:
             prefix = source.read(64)
@@ -384,6 +390,47 @@ class Worker:
             try: content = page.decode(encoding)
             except UnicodeError: return dict(base, kind="unsupported", reason="此文件的编码不支持预览。")
             return dict(base, kind="html" if extension in (".html", ".htm") else "text", content=content, page={"index": index, "count": count, "byteStart": read_start + byte_start, "byteEnd": read_start + byte_end, "encoding": encoding})
+
+    @staticmethod
+    def file_revision(info):
+        return "%s:%s:%s:%s:%s" % (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+    def save_file(self, relative, page_index, revision, data):
+        content_bytes = base64.b64decode(data, validate=True)
+        if len(content_bytes) > 1024 * 1024: raise ValueError("本次编辑内容超过 1 MB，请分段保存。")
+        content = content_bytes.decode("utf-8")
+        preview = self.preview(relative, page_index)
+        if preview["kind"] not in ("text", "html"): raise ValueError("此文件不支持文本编辑。")
+        if preview["revision"] != revision: raise ValueError("文件已被其他程序修改，请刷新后重新编辑，避免覆盖新内容。")
+        filename = self.resolve(relative)
+        temporary = None
+        with open(filename, "r+b") as source:
+            info, opened = os.stat(filename), os.fstat(source.fileno())
+            if (info.st_dev, info.st_ino) != (opened.st_dev, opened.st_ino) or self.file_revision(info) != revision: raise ValueError("文件已变化，请刷新后重新编辑。")
+            if "\r\n" in preview["content"]: content = re.sub(r"\r?\n", "\r\n", content)
+            descriptor, temporary = tempfile.mkstemp(prefix=".project-grid-edit-", dir=os.path.dirname(filename))
+            try:
+                with os.fdopen(descriptor, "wb") as destination:
+                    os.chmod(temporary, stat.S_IMODE(info.st_mode))
+                    def copy_range(start, end):
+                        source.seek(start)
+                        remaining = end - start
+                        while remaining:
+                            chunk = source.read(min(65536, remaining))
+                            if not chunk: raise ValueError("保存时文件发生变化，请刷新后重试。")
+                            destination.write(chunk)
+                            remaining -= len(chunk)
+                    copy_range(0, preview["page"]["byteStart"])
+                    destination.write(content.encode(preview["page"]["encoding"]))
+                    copy_range(preview["page"]["byteEnd"], info.st_size)
+                    destination.flush(); os.fsync(destination.fileno())
+                source.close()
+                if self.file_revision(os.stat(filename)) != revision: raise ValueError("文件已被其他程序修改，本次保存已取消。")
+                os.replace(temporary, filename)
+                temporary = None
+            finally:
+                if temporary and os.path.exists(temporary): os.unlink(temporary)
+        return self.preview(relative, page_index)
 
     def start_terminal(self, cols, rows):
         if os.name != "posix": raise ValueError("SSH 远端目前需要 Linux、Python 3 和 Bash。")
@@ -500,8 +547,9 @@ def main():
             elif op == "stat": value = worker.metadata(message["path"])
             elif op == "read": value = worker.read(message["path"], message["offset"], message["length"])
             elif op == "preview": value = worker.preview(message["path"], message.get("page", 0))
-            elif op == "resume-info": value = recent_session(worker.coding_root, worker.codex_home)
-            elif op == "codex-status": value = worker.codex_status(message.get("since"))
+            elif op == "save-file": value = worker.save_file(message["path"], message.get("page", 0), message.get("revision"), message["data"])
+            elif op == "resume-info": value = recent_session(worker.coding_root, worker.codex_home, message.get("threadId"))
+            elif op == "codex-status": value = worker.codex_status(message.get("since"), message.get("threadId"))
             elif op == "create": value = worker.create(message.get("path", ""), message["name"], message["kind"], message.get("unique", False))
             elif op == "rename": value = worker.rename(message["path"], message["name"])
             elif op == "remove": value = worker.remove(message["path"])

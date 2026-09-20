@@ -5,8 +5,28 @@ const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { CodexActivityReader, monitorActivity } = require('../electron/codex-activity.cjs');
+const { TerminalTitleTracker } = require('../electron/terminal-title.cjs');
 const line = value => JSON.stringify(value) + '\n';
 const event = (type, turn) => line({ type: 'event_msg', timestamp: new Date().toISOString(), payload: { type, turn_id: turn } });
+
+test('two terminals in the same folder bind to different Codex session titles', async t => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'pg-two-sessions-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  await fs.mkdir(path.join(home, 'sessions'));
+  const ids = [randomUUID(), randomUUID()];
+  for (const [index, id] of ids.entries()) await fs.writeFile(path.join(home, 'sessions', `rollout-${id}.jsonl`), line({ type: 'session_meta', payload: { id, cwd: home, source: 'cli' } }) + event('task_started', id) + (index ? event('task_complete', id) : ''));
+  const left = new CodexActivityReader(home, home, Date.now(), { threadId: () => ids[0], requireBinding: () => true });
+  const right = new CodexActivityReader(home, home, Date.now(), { threadId: () => ids[1], requireBinding: () => true });
+  assert.equal((await left.read()).state, 'working');
+  assert.equal((await right.read()).state, 'complete');
+  const unbound = new CodexActivityReader(home, home, Date.now(), { requireBinding: () => true });
+  assert.equal(await unbound.read(), null);
+  const titles = new TerminalTitleTracker();
+  assert.deepEqual(titles.write('\x1b]0;' + ids[0].slice(0, 15)), []);
+  assert.deepEqual(titles.write(ids[0].slice(15) + '\x07' + 'output'.repeat(20000)), [ids[0]]);
+  assert.deepEqual(titles.write('\x1b]2;' + ids[1] + '\x1b\\'), [ids[1]]);
+  assert.deepEqual(titles.write('normal output ' + ids[0]), []);
+});
 
 test('a child completion and stale turn never complete the interactive parent', async t => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'pg-activity-'));

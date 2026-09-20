@@ -24,6 +24,21 @@ test('adding the same real folder twice keeps one project', t => {
   assert.equal(store.projects.length, 1);
 });
 
+test('extra terminals keep independent recovery identities and closing one preserves the others', t => {
+  const { store, project, file } = fixture(t);
+  const first = store.addTerminal(project.id), second = store.addTerminal(project.id);
+  const thread = '00000000-0000-4000-8000-000000000001';
+  store.setRestore(first, { codex: true, threadId: thread });
+  const reopened = new WorkspaceStore(file);
+  assert.equal(reopened.findTerminal(first).record.restore.threadId, thread);
+  assert.equal(reopened.findTerminal(second).record.restore.codex, false);
+  reopened.removeTerminal(first);
+  assert.equal(reopened.findTerminal(first), null);
+  assert.equal(reopened.findTerminal(second).project.id, project.id);
+  reopened.removeTerminal(project.id);
+  assert.equal(reopened.findTerminal(second).record.restore.terminal, true);
+});
+
 test('turn completion is unread, deduplicated, and survives restarting the app', t => {
   const { store, project, file } = fixture(t);
   store.expectCompletion(project.id);

@@ -90,6 +90,11 @@ test('Linux remote worker reads real files, enforces boundaries and emits Codex 
   assert.equal((await connection.request('preview', { path: 'image.png', page: 0 })).kind, 'image');
   assert.equal((await connection.request('preview', { path: 'page.html', page: 0 })).kind, 'html');
   assert.equal(Buffer.from(await connection.request('read', { path: 'hello.txt', offset: 0, length: 6 }), 'base64').toString(), '中文');
+  const editable = await connection.request('preview', { path: 'hello.txt', page: 0 });
+  const edited = await connection.request('save-file', { path: 'hello.txt', page: 0, revision: editable.revision, data: Buffer.from('通过 SSH 保存\n第二行', 'utf8').toString('base64') });
+  assert.equal(edited.content, '通过 SSH 保存\n第二行');
+  assert.equal(await fs.readFile(path.join(fixture.project, 'hello.txt'), 'utf8'), edited.content);
+  await assert.rejects(connection.request('save-file', { path: 'hello.txt', page: 0, revision: editable.revision, data: Buffer.from('stale').toString('base64') }), /其他程序修改/);
   await assert.rejects(connection.request('read', { path: '../outside', offset: 0, length: 10 }));
   await waitFor(() => events.some(event => event.type === 'shell-prompt' && event.codexAvailable));
   connection.write('printf FIRST > shift-first.txt');

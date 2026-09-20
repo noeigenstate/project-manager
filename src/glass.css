@@ -56,6 +56,21 @@ kbd { border-color: #dbeeff26; color: #8ca3bd; background: #e9f4ff06; }
 .project-panel:hover { border-color: #e7f3ff67; }
 .project-panel::before, .file-preview::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 2; box-shadow: inset 0 1px 0 #ffffff26, inset -1px 0 0 #e4f6ff10; }
 .panel-terminal-area { background: rgba(7, 19, 27, .30); }
+.terminal-grid { display: grid; grid-template-columns: repeat(var(--terminal-columns), minmax(0, 1fr)); grid-template-rows: repeat(var(--terminal-rows), minmax(0, 1fr)); }
+.terminal-grid.has-splits { gap: 1px; padding: 1px; overflow: auto; grid-template-rows: repeat(var(--terminal-rows), minmax(170px, 1fr)); background: #dceeff25; }
+.terminal-split { min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; background: #0c2025a8; }
+.terminal-grid:not(.has-splits) .terminal-split { background: transparent; }
+.terminal-split-body { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.terminal-split-header, .terminal-split-footer { display: flex; align-items: center; gap: 7px; flex-shrink: 0; padding: 0 10px; min-height: 29px; color: #c7dae9; font-size: 10px; background: #dcefff08; }
+.terminal-split-header .icon-button, .terminal-split-footer .icon-button { width: 23px; height: 25px; }
+.terminal-split-header > span:first-child { color: #e5f1f9; }
+.split-status { margin-left: auto; color: #b8c9d7; font-size: 9px; }
+.split-status.working { color: #9cdfff; }.split-status.complete { color: #a8edc6; }
+.terminal-split-footer { border-top: 1px solid #d6ebfc14; justify-content: space-between; min-height: 28px; }
+.terminal-split-footer > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.terminal-split-footer > div { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.has-splits .is-active-terminal { box-shadow: inset 0 0 0 1px #b1dffc55; }
+.has-splits .terminal-host { inset: 8px 7px 4px 10px; }
 .app-shell:not(.focus-mode) .panel-header, .app-shell:not(.focus-mode) .panel-name { cursor: grab; touch-action: none; user-select: none; }
 .project-grid.is-reordering { cursor: grabbing; }
 .project-grid.is-reordering .project-panel.drag-source { position: fixed; left: var(--drag-left); top: var(--drag-top); width: var(--drag-width); height: var(--drag-height); transform: translate3d(var(--drag-x), var(--drag-y), 0) scale(1.015); z-index: 100; cursor: grabbing; animation: none; border-color: #d0e8ff; box-shadow: inset 0 1px 0 #ffffff55, 0 24px 65px #020c218c, 0 0 0 1px #d0e8ff50; will-change: transform; }
@@ -220,6 +235,13 @@ kbd { border-color: #dbeeff26; color: #8ca3bd; background: #e9f4ff06; }
 .file-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 5px 12px 5px 20px; font-size: 10px; color: #9fb5ce; min-height: 35px; border-bottom: 1px solid #dcedff0e; }
 .file-preview-toolbar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.file-preview-toolbar > div { display: flex; align-items: center; }
 .file-preview-toolbar .icon-button { width: 26px; height: 26px; }
+.file-text-editor { display: block; flex: 1; min-width: 0; min-height: 0; width: 100%; resize: none; padding: 18px 22px; border: 0; outline: 0; color: #f1f6fc; background: #07131b88; font: 13px/1.7 'Cascadia Code', Consolas, 'Microsoft YaHei UI', monospace; tab-size: 2; caret-color: #b5eaff; }
+.file-text-editor:focus { box-shadow: inset 0 0 0 1px #bde8ff45; }
+.file-text-editor::selection { background: #486779; }
+.editor-action { display: inline-flex; align-items: center; gap: 5px; }
+.editor-message { padding: 7px 18px; color: #bcf1d5; font-size: 11px; background: #17372c99; }
+.editor-error { color: #ffcfb4; background: #463022dd; }
+.explorer-context-menu { max-height: calc(100vh - 16px); overflow-y: auto; min-width: 250px; }
 .file-code-scroll { flex: 1; overflow: auto; min-height: 0; }
 .file-code-page { position: relative; min-width: 100%; }
 .file-code-page .file-code { position: absolute; }

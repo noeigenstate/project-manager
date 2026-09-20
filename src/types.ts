@@ -5,7 +5,9 @@ export type Project = {
   lastCompletedAt: number | null; lastActivityAt: number | null; awaitingCompletion: boolean;
   sessionId: string | null; status: 'stopped' | 'starting' | 'shell' | 'codex' | 'exited';
   codexActive: boolean; codexActivity: 'unknown' | 'working' | 'complete' | 'interrupted'; shellReady: boolean; codexAvailable: boolean | null; error: string | null;
+  terminals: ProjectTerminal[];
 };
+export type ProjectTerminal = { id: string; title: string; sessionId: string | null; status: Project['status']; codexActive: boolean; codexActivity: Project['codexActivity']; shellReady: boolean; codexAvailable: boolean | null; lastActivityAt: number | null; lastCompletedAt: number | null; error: string | null };
 export type Settings = { columns: number; notifications: boolean; sound: boolean; closeToTray: boolean; explorerCollapsed: boolean; fontSize: number; restoreSessions: boolean; focusAnimation: 'smooth' | 'system' | 'off' };
 export type SSHInfo = { hosts: string[]; configFile: string; configExists: boolean; sshPath: string; source: string };
 export type SSHAuthPrompt = { id: string; host: string; message: string; kind: 'secret' | 'confirm' };
@@ -18,7 +20,7 @@ export type VoiceState = { phase: 'missing' | 'downloading' | 'ready' | 'transcr
 export type DirectoryListing = { path: string; entries: FileEntry[]; total: number; nextOffset: number | null };
 export type TextPage = { index: number; count: number; byteStart: number; byteEnd: number; encoding: string };
 export type AppUpdateState = { supported: boolean; currentVersion: string; status: 'unavailable' | 'idle' | 'checking' | 'current' | 'downloading' | 'ready' | 'error'; version: string | null; percent: number; error: string | null };
-export type FilePreview = { path: string; name: string; size: number; modifiedAt: number } & (
+export type FilePreview = { path: string; name: string; size: number; modifiedAt: number; revision: string } & (
   { kind: 'text'; content: string; page: TextPage } | { kind: 'unsupported'; reason: string }
   | { kind: 'image' | 'video'; mimeType: string; url: string; previewId: string }
   | { kind: 'html'; content: string; page: TextPage; url: string; previewId: string }
@@ -49,6 +51,7 @@ export type Bridge = {
   renameEntry(id: string, relative: string, name: string): Promise<Result<{ path: string }>>;
   deleteEntries(id: string, paths: string[]): Promise<Result<{ deleted: string[] }>>;
   copyEntries(id: string, paths: string[]): Promise<Result<{ count: number }>>;
+  copyPaths(id: string, paths: string[], format: 'absolute' | 'relative'): Promise<Result<{ count: number }>>;
   pasteEntries(id: string, directory: string): Promise<Result<{ pasted: string[] }>>;
   fileTreeFocus(id: string, focused: boolean): void;
   getFileProgress(): Promise<Result<FileProgress>>;
@@ -62,11 +65,18 @@ export type Bridge = {
   pasteTerminal(id: string, text: string, sessionId: string): Promise<Result<void>>;
   onTerminalPaste(callback: (packet: { id: string; sessionId: string; text: string }) => void): () => void;
   readFile(id: string, relativePath: string, pageIndex?: number): Promise<Result<FilePreview>>;
+  saveFile(id: string, relativePath: string, pageIndex: number, revision: string, content: string): Promise<Result<FilePreview>>;
+  confirmEditorClose(filename: string): Promise<Result<'save' | 'discard' | 'cancel'>>;
+  editorDirty(dirty: boolean, id?: string, filename?: string): void;
+  onEditorClose(callback: (id: string) => void): () => void;
+  editorCloseResult(id: string, accepted: boolean): void;
   closePreview(id: string): Promise<Result<void>>;
   openLink(id: string, target: string): Promise<Result<{ kind: 'external' } | { kind: 'file'; path: string }>>;
   openVideo(id: string, relativePath: string): Promise<Result<void>>;
   revealProject(id: string): Promise<Result<void>>;
   startTerminal(id: string): Promise<Result<void>>;
+  addTerminal(id: string): Promise<Result<string>>;
+  closeTerminal(id: string): Promise<Result<boolean>>;
   restartTerminal(id: string): Promise<Result<boolean>>;
   attachTerminal(id: string): Promise<Result<TerminalSnapshot>>;
   launchCodex(id: string): Promise<Result<void>>;

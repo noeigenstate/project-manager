@@ -62,6 +62,11 @@ export function useExplorerFileActions(project: Project, changed: (directory?: s
   const folder = (entry: FileEntry) => entry.kind === 'directory' || !entry.path ? entry.path : parentOf(entry.path);
   const targets = (entry: FileEntry) => selected.includes(entry.path) ? selected : [entry.path];
   const copy = (paths: string[]) => run(async () => { const result = await unwrap(window.projectGrid.copyEntries(project.id, paths)); setMessage(`已复制 ${result.count} 项，可粘贴到其他位置`); });
+  const copyPaths = async (paths: string[], format: 'absolute' | 'relative') => {
+    setMenu(null);
+    try { await unwrap(window.projectGrid.copyPaths(project.id, paths, format)); setMessage(format === 'absolute' ? '已复制绝对路径' : '已复制相对路径'); }
+    catch (error) { setMessage(String((error as Error).message || error)); }
+  };
   const paste = (directory: string) => run(async () => {
     const result = await unwrap(window.projectGrid.pasteEntries(project.id, directory));
     setSelected(result.pasted); anchor.current = result.pasted[0] || directory;
@@ -80,7 +85,7 @@ export function useExplorerFileActions(project: Project, changed: (directory?: s
     event.preventDefault(); event.stopPropagation();
     const paths = targets(entry); if (!selected.includes(entry.path)) setSelected(paths);
     window.projectGrid.fileTreeFocus(project.id, true);
-    setMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 210)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 285)), entry, targets: paths });
+    setMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 250)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 365)), entry, targets: paths });
   };
   const backgroundEntry = (event: MouseEvent) => entryFor((event.target as Element).closest<HTMLElement>('[data-directory-path]')?.dataset.directoryPath || '');
   const onBackgroundClick = (event: MouseEvent) => {
@@ -91,7 +96,8 @@ export function useExplorerFileActions(project: Project, changed: (directory?: s
   const onBackgroundContextMenu = (event: MouseEvent) => { contextMenu(backgroundEntry(event), event); tree.current?.focus(); };
   const onKeyDown = (event: KeyboardEvent) => {
     const entry = menu?.entry || focused(); const control = event.ctrlKey || event.metaKey;
-    if (control && (event.key.toLowerCase() === 'c' || event.key === 'Insert')) { event.preventDefault(); event.stopPropagation(); const text = window.getSelection()?.toString(); if (text) void window.projectGrid.copy(text); else void copy(targets(entry)); }
+    if (control && event.shiftKey && event.key.toLowerCase() === 'c') { event.preventDefault(); event.stopPropagation(); void copyPaths(targets(entry), 'absolute'); }
+    else if (control && (event.key.toLowerCase() === 'c' || event.key === 'Insert')) { event.preventDefault(); event.stopPropagation(); const text = window.getSelection()?.toString(); if (text) void window.projectGrid.copy(text); else void copy(targets(entry)); }
     else if ((control && event.key.toLowerCase() === 'v') || (event.shiftKey && event.key === 'Insert')) { event.preventDefault(); event.stopPropagation(); void paste(folder(entry)); }
     else if (control && event.key.toLowerCase() === 'a') { event.preventDefault(); event.stopPropagation(); setSelected(rows().map(row => row.dataset.nodePath!).filter(Boolean)); }
     else if (event.key === 'Delete' && entry.path) { event.preventDefault(); event.stopPropagation(); void remove(targets(entry)); }
@@ -107,6 +113,8 @@ export function useExplorerFileActions(project: Project, changed: (directory?: s
   };
   const overlays = <>{menu && createPortal(<div ref={menuElement} className="dropdown explorer-context-menu" role="menu" aria-label="文件操作" style={{ left: menu.x, top: menu.y }}>
     <button role="menuitem" onClick={() => void copy(menu.targets)}><Copy size={16} />复制<span>Ctrl C</span></button>
+    <button role="menuitem" onClick={() => void copyPaths(menu.targets, 'absolute')}><Copy size={16} />复制绝对路径<span>Ctrl Shift C</span></button>
+    <button role="menuitem" onClick={() => void copyPaths(menu.targets, 'relative')}><Copy size={16} />复制相对路径</button>
     <button role="menuitem" onClick={() => void paste(folder(menu.entry))}><Clipboard size={16} />粘贴<span>Ctrl V</span></button><div className="menu-divider" />
     <button role="menuitem" onClick={() => openCreate('file', menu.entry)}><FilePlus size={16} />新建文件</button>
     <button role="menuitem" onClick={() => openCreate('directory', menu.entry)}><FolderPlus size={16} />新建文件夹</button>

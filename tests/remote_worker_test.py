@@ -71,6 +71,23 @@ class RemoteFilesTest(unittest.TestCase):
             self.assertEqual("".join(page["content"] for page in pages), content)
             for left, right in zip(pages, pages[1:]): self.assertEqual(left["page"]["byteEnd"], right["page"]["byteStart"])
 
+    def test_page_edits_preserve_unicode_encoding_and_reject_conflicts(self):
+        for encoding, bom in (("utf-8", b"\xef\xbb\xbf"), ("utf-16le", b"\xff\xfe"), ("utf-16be", b"\xfe\xff")):
+            original = bom + ("中文🙂 line\r\n" * 70000).encode(encoding)
+            filename = self.root / "editable.txt"
+            filename.write_bytes(original)
+            preview = self.worker.preview("editable.txt", 1)
+            replacement = "edited\n第二行🙂"
+            payload = base64.b64encode(replacement.encode("utf-8")).decode("ascii")
+            self.worker.save_file("editable.txt", 1, preview["revision"], payload)
+            expected = original[:preview["page"]["byteStart"]] + replacement.replace("\n", "\r\n").encode(encoding) + original[preview["page"]["byteEnd"]:]
+            self.assertEqual(filename.read_bytes(), expected)
+            current = self.worker.preview("editable.txt", 0)
+            filename.write_text("external content", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "其他程序修改"):
+                self.worker.save_file("editable.txt", 0, current["revision"], payload)
+            self.assertEqual(filename.read_text(encoding="utf-8"), "external content")
+
     def test_traversal_and_non_files_are_rejected(self):
         for filename in ("../outside", "/etc/passwd", "bad\0path", "a\\b"):
             with self.assertRaises(ValueError): self.worker.resolve(filename)

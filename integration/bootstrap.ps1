@@ -83,7 +83,7 @@ function global:codex {
         if ([IO.Path]::GetExtension($global:ProjectGridCodexExecutable) -ne '.exe') {
             throw 'Use a native Codex executable or the standard npm installation of Codex.'
         }
-        $nativeArgs = @($global:ProjectGridCodexPrefix) + @('-c', ('notify=' + $notifyCommand)) + $forwardArgs
+        $nativeArgs = @($global:ProjectGridCodexPrefix) + @('-c', ('notify=' + $notifyCommand), '-c', 'tui.terminal_title=["session-id"]') + $forwardArgs
         $startInfo = [Diagnostics.ProcessStartInfo]::new()
         $startInfo.FileName = $global:ProjectGridCodexExecutable
         $startInfo.Arguments = (($nativeArgs | ForEach-Object { ConvertTo-ProjectGridArgument ([string]$_) }) -join ' ')

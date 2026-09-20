@@ -109,6 +109,9 @@ jobs:
       - name: Verify file operations and microphone UI with isolated test devices
         run: npm run test:workspace -- --packaged --slow-copy
 
+      - name: Verify editing, path copying and independent split terminals
+        run: npm run test:editor-terminals -- --packaged
+
       - name: Create checksum and build notes
         run: |
           $version = '${{ steps.version.outputs.version }}'
@@ -164,6 +167,7 @@ jobs:
             .test-output/sessions-*/*.png
             .test-output/workspace-*/*.png
             .test-output/focus-motion-*/*.png
+            .test-output/editor-terminals-*/*.png
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
@@ -210,6 +214,9 @@ jobs:
           Install Codex CLI on the computer or Linux SSH host where your project runs.
 
           - Multiple project terminals with completion alerts.
+          - Add independent terminals inside each project with automatic split layout, separate Codex identities and individual session recovery.
+          - Edit text and HTML source, save with Ctrl+S, preserve encoding and untouched large-file segments, and detect external modification conflicts.
+          - Explorer menus copy local or SSH absolute paths and project-relative paths; Ctrl+Shift+C copies absolute paths.
           - Parent-session lifecycle records determine running, completed and interrupted states; child-agent and stale-turn notifications cannot finish the current task.
           - Incremental bounded status reads, single-flight directory refresh, fewer workspace broadcasts, and removed obsolete sidebar/drag-preview styles.
           - Fullscreen project view, collapsible file explorer, and frosted glass interface.

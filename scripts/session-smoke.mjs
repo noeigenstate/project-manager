@@ -66,8 +66,9 @@ async function launch() {
 async function receipt(project) { try { return JSON.parse(await fs.readFile(path.join(project.path, 'resume-receipt.json'), 'utf8')); } catch { return null; } }
 async function verifyResume() {
   await waitFor(async () => (await receipt(projects[0])) && (await receipt(projects[1])), 'restored Codex processes');
-  assert.deepEqual((await receipt(projects[0])).args.slice(2), ['resume', projects[0].sessionId, '继续']);
-  assert.deepEqual((await receipt(projects[1])).args.slice(2), ['resume', projects[1].sessionId]);
+  assert.deepEqual((await receipt(projects[0])).args.slice(2, 4), ['-c', 'tui.terminal_title=["session-id"]']);
+  assert.deepEqual((await receipt(projects[0])).args.slice(4), ['resume', projects[0].sessionId, '继续']);
+  assert.deepEqual((await receipt(projects[1])).args.slice(4), ['resume', projects[1].sessionId]);
   assert.equal(await receipt(projects[2]), null);
   assert.equal(await receipt(projects[3]), null);
   await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects.filter(p => p.codexActive).length === 2, 'two active restored conversations');

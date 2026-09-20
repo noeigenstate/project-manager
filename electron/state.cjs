@@ -34,7 +34,10 @@ class WorkspaceStore {
         id: p.id, name: String(p.name || path.basename(p.path)).slice(0, 120), path: p.path,
         kind: p.kind === 'ssh' ? 'ssh' : 'local',
         ...(p.kind === 'ssh' ? { ssh: { host: p.ssh.host, configFile: p.ssh.configFile || null } } : {}),
-        restore: p.restore && typeof p.restore === 'object' ? { terminal: p.restore.terminal === true, codex: p.restore.codex === true, cwd: typeof p.restore.cwd === 'string' && (p.kind === 'ssh' ? p.restore.cwd.startsWith('/') : path.isAbsolute(p.restore.cwd)) ? p.restore.cwd : null } : null,
+        restore: p.restore && typeof p.restore === 'object' ? { terminal: p.restore.terminal === true, codex: p.restore.codex === true, cwd: typeof p.restore.cwd === 'string' && (p.kind === 'ssh' ? p.restore.cwd.startsWith('/') : path.isAbsolute(p.restore.cwd)) ? p.restore.cwd : null, ...(/^[a-f\d-]{36}$/i.test(p.restore.threadId || '') ? { threadId: p.restore.threadId } : {}) } : null,
+        terminals: Array.isArray(p.terminals) ? p.terminals.filter(item => item && /^[a-f\d-]{36}$/i.test(item.id || '')).map(item => ({ id: item.id, restore: { terminal: item.restore?.terminal === true, codex: item.restore?.codex === true,
+          cwd: typeof item.restore?.cwd === 'string' && (p.kind === 'ssh' ? item.restore.cwd.startsWith('/') : path.isAbsolute(item.restore.cwd)) ? item.restore.cwd : null,
+          ...(/^[a-f\d-]{36}$/i.test(item.restore?.threadId || '') ? { threadId: item.restore.threadId } : {}) } })) : [],
         unread: Number.isSafeInteger(p.unread) && p.unread > 0 ? p.unread : 0,
         done: p.done === true,
         lastCompletedAt: typeof p.lastCompletedAt === 'number' ? p.lastCompletedAt : null,
@@ -42,6 +45,8 @@ class WorkspaceStore {
         seenEvents: Array.isArray(p.seenEvents) ? p.seenEvents.filter(x => typeof x === 'string').slice(-128) : [],
       }));
       this.settings = cleanSettings(value.settings);
+      const terminalIds = new Set(this.projects.map(project => project.id));
+      for (const project of this.projects) project.terminals = project.terminals.filter(item => { if (terminalIds.has(item.id)) return false; terminalIds.add(item.id); return true; });
     } catch {
       const backup = `${filename}.unreadable-${Date.now()}`;
       fs.copyFileSync(filename, backup);
@@ -71,15 +76,41 @@ class WorkspaceStore {
   }
 
   setRestore(id, patch) {
-    const project = this.projects.find(p => p.id === id);
-    if (!project) return;
-    const next = { terminal: project.restore?.terminal === true, codex: project.restore?.codex === true, cwd: project.restore?.cwd || null };
+    const found = this.findTerminal(id);
+    if (!found) return;
+    const { project, record } = found;
+    const next = { terminal: record.restore?.terminal === true, codex: record.restore?.codex === true, cwd: record.restore?.cwd || null, ...(record.restore?.threadId ? { threadId: record.restore.threadId } : {}) };
     if (typeof patch.terminal === 'boolean') next.terminal = patch.terminal;
     if (typeof patch.codex === 'boolean') next.codex = patch.codex;
     if (typeof patch.cwd === 'string' && patch.cwd.length <= 4096 && !/[\0\r\n]/.test(patch.cwd) && (project.kind === 'ssh' ? patch.cwd.startsWith('/') : path.isAbsolute(patch.cwd))) next.cwd = patch.cwd;
-    if (JSON.stringify(next) === JSON.stringify(project.restore)) return;
-    project.restore = next;
+    if (patch.threadId === null) delete next.threadId;
+    else if (/^[a-f\d-]{36}$/i.test(patch.threadId || '')) next.threadId = patch.threadId;
+    if (JSON.stringify(next) === JSON.stringify(record.restore)) return;
+    record.restore = next;
     this.save();
+  }
+
+  findTerminal(id) {
+    for (const project of this.projects) {
+      if (project.id === id) return { project, record: project };
+      const record = project.terminals?.find(item => item.id === id);
+      if (record) return { project, record };
+    }
+    return null;
+  }
+
+  addTerminal(projectId) {
+    const project = this.projects.find(item => item.id === projectId);
+    if (!project) throw new Error('项目不存在。');
+    const terminal = { id: randomUUID(), restore: { terminal: true, codex: false, cwd: project.path } };
+    project.terminals ||= []; project.terminals.push(terminal); this.save(); return terminal.id;
+  }
+
+  removeTerminal(id) {
+    const found = this.findTerminal(id);
+    if (!found) return;
+    if (found.project.id === id) this.setRestore(id, { terminal: false, codex: false, threadId: null });
+    else { found.project.terminals = found.project.terminals.filter(item => item.id !== id); this.save(); }
   }
 
   swapProjects(sourceId, targetId) {

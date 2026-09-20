@@ -38,7 +38,7 @@ function advanceTaskState(state, record) {
   return state;
 }
 
-async function recentSession(projectPath, codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')) {
+async function recentSession(projectPath, codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), threadId = null) {
   const directory = path.join(codexHome, 'sessions');
   const files = [];
   async function visit(folder) {
@@ -60,6 +60,7 @@ async function recentSession(projectPath, codexHome = process.env.CODEX_HOME || 
         if (!meta) {
           if (record.type !== 'session_meta' || !['cli', 'vscode'].includes(record.payload?.source || 'cli') || !sameDirectory(record.payload?.cwd, projectPath)) break;
           if (!/^[a-f\d-]{36}$/i.test(record.payload.id || '')) break;
+          if (threadId && record.payload.id !== threadId) break;
           meta = record.payload;
         } else state = advanceTaskState(state, record);
       }
