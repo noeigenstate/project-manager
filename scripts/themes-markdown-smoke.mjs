@@ -93,6 +93,7 @@ try {
   assert.equal(await editor.inputValue(), dirtyContent);
   const unsafe = dirtyContent + '\n<script>globalThis.mdPwned=true</script>\n<style>html{display:none}</style>\n<iframe src="https://example.com"></iframe>\n<a href="javascript:globalThis.mdPwned=true">危险链接</a>\n<img src="missing.png" onerror="globalThis.mdPwned=true">\n<input autofocus onfocus="globalThis.mdPwned=true">\n';
   await editor.fill(unsafe); await page.getByRole('button', { name: '预览', exact: true }).click();
+  await markdown.getByText('危险链接', { exact: true }).waitFor();
   assert.equal(await markdown.locator('script,style,iframe,[onerror],[onfocus],input:not([disabled])').count(), 0);
   assert.equal(await markdown.getByText('危险链接', { exact: true }).getAttribute('href'), null);
   assert.equal(await page.evaluate(() => globalThis.mdPwned), undefined);

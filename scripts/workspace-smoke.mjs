@@ -95,7 +95,8 @@ try {
   assert.equal(await fs.readFile(path.join(project.path, '新文件.txt'), 'utf8'), '');
   await page.getByRole('treeitem', { name: '新文件.txt', exact: true }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: /^重命名/ }).click();
-  await page.getByLabel('文件或文件夹名称', { exact: true }).fill('renamed.txt'); await page.getByRole('button', { name: '保存', exact: true }).click();
+  const renameDialog = page.locator('dialog.file-edit-dialog[open]');
+  await renameDialog.getByLabel('文件或文件夹名称', { exact: true }).fill('renamed.txt'); await renameDialog.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByRole('treeitem', { name: 'renamed.txt', exact: true }).waitFor();
   await backupClipboard();
   await page.getByRole('treeitem', { name: 'source.txt', exact: true }).click(); await page.keyboard.press('Control+c');
