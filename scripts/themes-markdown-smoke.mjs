@@ -72,9 +72,17 @@ try {
   await page.getByRole('treeitem', { name: 'README.md', exact: true }).click();
   const editor = page.getByRole('textbox', { name: '文件编辑器', exact: true });
   await editor.waitFor(); assert.equal(await editor.inputValue(), content);
+  const previewGeometry = await page.locator('.file-preview').evaluate(node => {
+    const box = node.getBoundingClientRect(), footer = document.querySelector('.workspace-statusbar').getBoundingClientRect();
+    return { gap: footer.top - box.bottom, margin: parseFloat(getComputedStyle(node).marginBottom), footerLeft: footer.left, footerRight: footer.right, width: innerWidth };
+  });
+  assert.ok(Math.abs(previewGeometry.gap - previewGeometry.margin) <= 1, 'preview has no obsolete extra footer gap');
+  assert.ok(previewGeometry.footerLeft === 0 && previewGeometry.footerRight === previewGeometry.width, 'footer spans explorer and preview');
+  assert.equal(await editor.evaluate(node => getComputedStyle(node).fontWeight), '600');
   await page.getByRole('button', { name: '预览', exact: true }).click();
   const markdown = page.getByRole('article', { name: 'Markdown 预览', exact: true });
   await markdown.getByRole('heading', { name: 'Project Grid', exact: true }).waitFor();
+  assert.equal(await markdown.evaluate(node => getComputedStyle(node).fontWeight), '600');
   assert.equal(await markdown.locator('table tbody tr').count(), 2);
   assert.equal(await markdown.locator('pre code').count(), 1);
   assert.equal(await markdown.locator('input[type="checkbox"][disabled]').count(), 2);

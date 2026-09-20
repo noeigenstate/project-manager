@@ -47,10 +47,31 @@ try {
   await page.getByRole('textbox', { name: '搜索项目', exact: true }).focus(); await page.mouse.move(2, 2);
   assert.equal(await page.locator('.panel-edge-light').count(), 0, 'old decorative strips are removed');
   assert.equal(await panel(0).evaluate(node => getComputedStyle(node).animationName), 'none', 'the text surface is not animated');
-  const liveSamples = await panel(0).locator('.panel-signal').evaluate(async node => {
-    const values = []; for (let index = 0; index < 14; index++) { values.push(Number(getComputedStyle(node).opacity)); await new Promise(resolve => setTimeout(resolve, 100)); } return values;
-  });
-  assert.ok(Math.max(...liveSamples) - Math.min(...liveSamples) > .2, 'the actual running window visibly breathes');
+  const liveSamples = [];
+  for (const mode of ['normal', 'hover', 'input-focus']) {
+    if (mode === 'hover') await panel(0).locator('.panel-header').hover();
+    if (mode === 'input-focus') { await panel(0).locator('textarea.xterm-helper-textarea').focus(); await page.mouse.move(2, 2); }
+    const samples = await panel(0).evaluate(async node => {
+      const edge = node.querySelector('.panel-signal'), dot = node.querySelector('.status-dot'), text = node.querySelector('.xterm-rows');
+      const values = [];
+      for (let index = 0; index < 24; index++) {
+        const lights = [edge, dot].map(light => { const style = getComputedStyle(light); return { opacity: Number(style.opacity), low: Number(style.getPropertyValue('--light-low')), peak: Number(style.getPropertyValue('--light-peak')) }; });
+        values.push({ lights, text: { opacity: getComputedStyle(text).opacity, color: getComputedStyle(text).color, animation: getComputedStyle(text).animationName } });
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      return values;
+    });
+    const ranges = [0, 1].map(index => { const values = samples.map(sample => sample.lights[index].opacity); return [Math.min(...values), Math.max(...values)]; });
+    assert.ok(ranges.every(([low, high]) => low < .25 && high > .93 && high - low > .65), `${mode}: clearly dark and bright phases ${JSON.stringify(ranges)}`);
+    for (const sample of samples) {
+      const phase = sample.lights.map(light => (light.opacity - light.low) / (light.peak - light.low));
+      assert.ok(Math.abs(phase[0] - phase[1]) < .06, `${mode}: edge and dot brighten together`);
+      assert.deepEqual(sample.text, samples[0].text, `${mode}: reading surface stays steady`);
+      assert.equal(sample.text.opacity, '1'); assert.equal(sample.text.animation, 'none');
+    }
+    liveSamples.push({ mode, ranges, samples });
+  }
+  await page.getByRole('textbox', { name: '搜索项目', exact: true }).focus(); await page.mouse.move(2, 2);
   const timings = await panel(0).evaluate(node => ['.panel-signal', '.status-dot'].map(selector => {
     const animation = node.querySelector(selector).getAnimations()[0];
     return { start: animation.startTime, duration: animation.effect.getTiming().duration, infinite: animation.effect.getTiming().iterations === Infinity };
@@ -59,12 +80,13 @@ try {
   assert.ok(timings.every(timing => timing.duration === 2000 && timing.infinite));
   assert.equal(await breathing(1), 0, 'old unread completion stays quiet');
   assert.equal(await breathing(2), 0, 'ready shell stays quiet');
-  for (const [name, time] of [['low', 0], ['peak', 800]]) {
+  for (const [name, time] of [['low', 0], ['peak', 1000], ['low-again', 2000]]) {
     await panel(0).evaluate((node, time) => { for (const animation of node.getAnimations({ subtree: true })) { if (animation.animationName === 'signal-breathe') { animation.pause(); animation.currentTime = time; } } }, time);
     await page.screenshot({ path: path.join(output, `forest-${name}.png`) });
+    const opacity = await panel(0).locator('.panel-signal').evaluate(node => Number(getComputedStyle(node).opacity));
+    assert.ok(name === 'peak' ? opacity >= .94 : opacity <= .2, `${name}: ${opacity}`);
   }
-  const peak = await panel(0).locator('.panel-signal').evaluate(node => Number(getComputedStyle(node).opacity));
-  assert.ok(peak >= .84);
+  await panel(0).evaluate(node => { for (const animation of node.getAnimations({ subtree: true })) if (animation.animationName === 'signal-breathe') animation.currentTime = 1000; });
   const surface = await panel(0).evaluate(node => {
     const box = node.getBoundingClientRect();
     return { x: box.x, y: box.y, width: box.width, height: box.height, viewport: innerWidth, backdrop: getComputedStyle(node).backdropFilter };
@@ -100,13 +122,18 @@ try {
   await page.screenshot({ path: path.join(output, 'forest-3840x2160.png') });
   await cdp.send('Emulation.clearDeviceMetricsOverride'); await cdp.detach();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(820, 560));
-  await page.waitForFunction(() => innerWidth === 820);
+  await page.waitForFunction(() => Math.abs(innerWidth - 820) <= 1); // Windows DPI can round the client width by one CSS pixel.
   const compact = await page.locator('.panel-header').evaluateAll(headers => headers.map(header => {
     const bounds = header.getBoundingClientRect(), name = header.querySelector('.panel-name').getBoundingClientRect();
     return { titleWidth: name.width, inside: [...header.children].filter(child => getComputedStyle(child).display !== 'none').every(child => { const box = child.getBoundingClientRect(); return box.left >= bounds.left && box.right <= bounds.right + 1; }), metaSize: getComputedStyle(header.parentElement.querySelector('.panel-meta')).fontSize };
   }));
   await page.screenshot({ path: path.join(output, 'compact-820x560.png') });
   assert.ok(compact.every(card => card.inside && card.titleWidth >= 70 && parseFloat(card.metaSize) >= 11), JSON.stringify(compact));
+  const compactEdges = await page.evaluate(() => {
+    const top = document.querySelector('.titlebar').getBoundingClientRect(), bottom = document.querySelector('.workspace-statusbar').getBoundingClientRect();
+    return { top: top.top, left: top.left, right: top.right, bottom: bottom.bottom, bottomLeft: bottom.left, bottomRight: bottom.right, width: innerWidth, height: innerHeight };
+  });
+  assert.ok(compactEdges.top === 0 && compactEdges.left === 0 && compactEdges.bottomLeft === 0 && compactEdges.right === compactEdges.width && compactEdges.bottomRight === compactEdges.width && compactEdges.bottom === compactEdges.height, 'compact bars meet viewport edges');
   await panel(3).locator('.panel-terminal-area').click({ position: { x: 40, y: 50 } });
   await page.keyboard.type('DRAFT_STAYS_SMALL'); assert.equal(await page.locator('.focus-mode').count(), 0);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1600, 900));
@@ -139,6 +166,12 @@ try {
   assert.equal(await breathing(0), 0, 'system reduced motion disables decorative breathing');
   await page.screenshot({ path: path.join(output, 'reduced-motion.png') });
   assert.deepEqual(errors, []);
-  await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ packaged, timings, lens, liveRange: [Math.min(...liveSamples), Math.max(...liveSamples)], compact, errors }, null, 2));
+  await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ packaged, timings, lens, liveSamples, compact, compactEdges, errors }, null, 2));
   console.log(`PASS: live 2-second synchronized lights, finite completion, quiet idle, all themes, high DPI, compact controls, explorer and preserved small-card input. Screenshots: ${output}`);
+} catch (error) {
+  if (page) {
+    await page.screenshot({ path: path.join(output, 'failure.png') }).catch(() => {});
+    console.error('Visual test viewport:', await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scale: devicePixelRatio })).catch(() => null));
+  }
+  throw error;
 } finally { if (app) await app.close(); }

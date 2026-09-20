@@ -241,8 +241,9 @@ jobs:
           - All VS Code launch actions and manual project-completion controls have been removed. SSH folder menus, terminal directory links and Markdown directory links open the built-in explorer and respect unsaved edits.
           - Previously manually finished projects remain stopped after upgrading, including every split terminal; start them manually when needed. Session identity and history are retained.
           - Image path copying waits for the native clipboard to finish and produces text only. A slower earlier file copy cannot overwrite a newer copied path.
-          - Crisp blue-purple-pink-amber vector edges and four corner highlights breathe in sync with the status dot every 2 seconds. Completion breathes three times, then stays quiet; viewed automatic round completion stays steady green.
-          - Larger project labels, clearer status text and darker glass reading surfaces preserve terminal colors and custom font sizes across all three themes.
+          - Borders and status dots visibly fade dark to bright to dark together over 2 seconds, including while hovering or typing. Completion breathes three times, then stays quiet; viewed automatic round completion stays steady green.
+          - Brighter, bolder interface and terminal text, readable faint ANSI output and selected inverse text across all three transparent themes. Custom terminal font sizes and color hues are preserved.
+          - Title and status bars meet the window edges, including beside the explorer. Project cards use tighter 8px spacing and smaller 14px corners.
           - Smaller Windows x64 packages exclude source maps, native build sources, duplicate/other-platform PTY binaries and Python caches; required local/SSH runtimes are verified before release.
           - Choose Forest Light, Mountain Blue or Wild Red in Settings; themes apply immediately and persist without restarting terminals.
           - Text/code files open directly in edit mode. Markdown previews render headings, tables, code, task lists, local/SSH images and links, including unsaved drafts.

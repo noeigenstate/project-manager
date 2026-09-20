@@ -324,9 +324,9 @@ export function App() {
             </div>
           </>}
         </div>
-        <footer className="workspace-statusbar"><span><span className="connection-dot" />{projects.some(project => project.kind === 'ssh') ? '本地与 SSH 工作区' : '本地工作区'}<span className="statusbar-divider">/</span>{projects.length} 个项目</span><span>{focusedId ? <><kbd>Ctrl Shift G</kbd>返回总览</> : <><span className="legend-red" />{unread} 个待查看<span className="legend-green" />{completed} 个本轮完成</>}</span></footer>
       </main>
     </div>
+    <footer className="workspace-statusbar"><span><span className="connection-dot" />{projects.some(project => project.kind === 'ssh') ? '本地与 SSH 工作区' : '本地工作区'}<span className="statusbar-divider">/</span>{projects.length} 个项目</span><span>{focusedId ? <><kbd>Ctrl Shift G</kbd>返回总览</> : <><span className="legend-red" />{unread} 个待查看<span className="legend-green" />{completed} 个本轮完成</>}</span></footer>
     {error && <div className="error-toast" role="alert"><Info size={18} /><span>{error}</span><IconButton label="关闭提示" onClick={() => setError(null)}><X size={16} /></IconButton></div>}
     {settingsOpen && <SettingsDialog settings={settings} updates={updates} onCheckUpdate={() => { perform(api.checkForUpdates()); }} onInstallUpdate={() => { perform(api.installUpdate()); }} onDownloadPage={() => { perform(api.openDownloadPage()); }} close={() => setSettingsOpen(false)} update={setPreference} quit={() => perform(api.quit())} onVoice={() => { setSettingsOpen(false); setVoiceTarget(null); setVoiceOpen(true); }} />}
     {addOpen && <AddProjectDialog onClose={() => setAddOpen(false)} onAdded={() => setQuery('')} onError={reportError} />}

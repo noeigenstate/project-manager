@@ -63,14 +63,14 @@ export function TerminalPane({ id, sessionId, fontSize, onError, focused, onOpen
     const leaveLink = () => { if (host.current) host.current.removeAttribute('title'); };
     const terminal = new Terminal({
       fontFamily: "'Cascadia Code', 'Consolas', 'Microsoft YaHei UI', monospace",
-      fontSize, lineHeight: 1.3, fontWeight: '400', scrollback: 3000, minimumContrastRatio: 4.5,
+      fontSize, lineHeight: 1.3, fontWeight: '600', fontWeightBold: '700', scrollback: 3000, minimumContrastRatio: 7,
       cursorBlink: true, cursorStyle: 'bar', allowProposedApi: false, allowTransparency: true,
       // Bundled ConPTY reflows the prompt on resize; the cursor line must follow
       // that reflow too, or later output can overwrite old prompt characters.
       reflowCursorLine: !remote,
       linkHandler: { activate: activateLink, hover: hoverLink, leave: leaveLink, allowNonHttpProtocols: true },
       theme: {
-        background: '#00000000', foreground: '#f1f6fc', cursor: '#f1f6fc',
+        background: '#00000000', foreground: '#ffffff', cursor: '#ffffff',
         selectionBackground: '#405770', black: '#252a34', red: '#ff969e',
         green: '#a2ddb8', yellow: '#f2d596', blue: '#a1caff', magenta: '#d0b6f7',
         cyan: '#a0e0e8', white: '#e7eff9', brightBlack: '#b2c2d5', brightRed: '#ffacb2',

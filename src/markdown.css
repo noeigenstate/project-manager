@@ -1,4 +1,4 @@
-.markdown-body { flex: 1; min-height: 0; overflow: auto; padding: 28px clamp(22px, 4vw, 66px) 60px; color: var(--theme-ink); background: var(--theme-editor); font: 14px/1.85 'Segoe UI', 'Microsoft YaHei UI', sans-serif; overflow-wrap: anywhere; }
+.markdown-body { flex: 1; min-height: 0; overflow: auto; padding: 28px clamp(22px, 4vw, 66px) 60px; color: var(--theme-ink); background: var(--theme-editor); font: 600 14px/1.85 'Segoe UI', 'Microsoft YaHei UI', sans-serif; overflow-wrap: anywhere; }
 .markdown-body:focus { outline: none; }
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { color: var(--theme-ink); line-height: 1.4; letter-spacing: -.02em; scroll-margin-top: 20px; }
