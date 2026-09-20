@@ -80,6 +80,7 @@ test('Linux remote worker reads real files, enforces boundaries and emits Codex 
   await fs.writeFile(path.join(fixture.project, 'hello.txt'), '中文 remote file');
   await fs.copyFile(path.join(__dirname, '..', 'assets', 'icon.png'), path.join(fixture.project, 'image.png'));
   await fs.writeFile(path.join(fixture.project, 'page.html'), '<h1>Remote preview</h1>');
+  await fs.writeFile(path.join(fixture.project, 'README.md'), '# SSH Markdown');
   const stub = '#!/usr/bin/env python3\nimport json,subprocess,sys\ncommand=json.loads(sys.argv[2][7:])\nsubprocess.run(command+[json.dumps({"type":"agent-turn-complete","thread-id":"test","turn-id":"1"})])\nprint("REMOTE_CODEX_DONE")\n';
   await fs.writeFile(path.join(fixture.home, 'bin', 'codex'), stub, { mode: 0o755 });
   const connection = new RemoteConnection(project, { integrationDir, auth, sshPath, sessionKey: 'test-linux-key', onEvent: event => events.push(event) });
@@ -89,6 +90,7 @@ test('Linux remote worker reads real files, enforces boundaries and emits Codex 
   assert.equal((await connection.request('preview', { path: 'hello.txt', page: 0 })).content, '中文 remote file');
   assert.equal((await connection.request('preview', { path: 'image.png', page: 0 })).kind, 'image');
   assert.equal((await connection.request('preview', { path: 'page.html', page: 0 })).kind, 'html');
+  assert.equal((await connection.request('preview', { path: 'README.md', page: 0 })).kind, 'markdown');
   assert.equal(Buffer.from(await connection.request('read', { path: 'hello.txt', offset: 0, length: 6 }), 'base64').toString(), '中文');
   const editable = await connection.request('preview', { path: 'hello.txt', page: 0 });
   const edited = await connection.request('save-file', { path: 'hello.txt', page: 0, revision: editable.revision, data: Buffer.from('通过 SSH 保存\n第二行', 'utf8').toString('base64') });

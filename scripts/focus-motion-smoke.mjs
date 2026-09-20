@@ -159,7 +159,7 @@ try {
   await page.locator(`[data-project-id="${projects[0].id}"] .panel-name`).click();
   await settled(true); await landed(projects[0].id);
   await page.getByRole('treeitem', { name: 'README.md', exact: true }).click();
-  await page.getByLabel('文件文本内容', { exact: true }).waitFor();
+  await page.getByLabel('文件编辑器', { exact: true }).waitFor();
   await page.getByRole('button', { name: '返回总览', exact: true }).click();
   await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 700));
   await settled(false); await landed(projects[0].id);

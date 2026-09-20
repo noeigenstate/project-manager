@@ -3,13 +3,14 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { normalizeSSH } = require('./ssh-config.cjs');
 
-const defaults = { columns: 0, notifications: true, sound: true, closeToTray: true, explorerCollapsed: false, fontSize: 12, restoreSessions: true, focusAnimation: 'smooth' };
+const defaults = { columns: 0, notifications: true, sound: true, closeToTray: true, explorerCollapsed: false, fontSize: 12, restoreSessions: true, focusAnimation: 'smooth', theme: 'forest' };
 
 function cleanSettings(input = {}) {
   return {
     columns: [0, 1, 2, 3, 4].includes(input.columns) ? input.columns : defaults.columns,
     fontSize: Number.isInteger(input.fontSize) && input.fontSize >= 10 && input.fontSize <= 20 ? input.fontSize : defaults.fontSize,
     focusAnimation: ['smooth', 'system', 'off'].includes(input.focusAnimation) ? input.focusAnimation : defaults.focusAnimation,
+    theme: ['forest', 'mountain-blue', 'wild-red'].includes(input.theme) ? input.theme : defaults.theme,
     ...Object.fromEntries(['notifications', 'sound', 'closeToTray', 'explorerCollapsed', 'restoreSessions'].map(key => [key, typeof input[key] === 'boolean' ? input[key] : defaults[key]])),
   };
 }

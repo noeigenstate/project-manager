@@ -495,7 +495,7 @@ function registerIpc() {
   handle('project:file', async (id, relativePath, pageIndex) => {
     const project = findProject(id);
     const preview = project.kind === 'ssh' ? await remoteFor(id).request('preview', { path: relativePath, page: pageIndex || 0 }) : await readProjectFile(project, relativePath, pageIndex);
-    if (['image', 'html', 'video'].includes(preview.kind)) return { ...preview, ...previewResources.open(project, relativePath, preview.kind, preview.mimeType) };
+    if (['image', 'html', 'markdown', 'video'].includes(preview.kind)) return { ...preview, ...previewResources.open(project, relativePath, preview.kind, preview.mimeType) };
     return preview;
   });
   handle('project:preview-close', id => previewResources.close(id));
@@ -508,7 +508,7 @@ function registerIpc() {
       const preview = project.kind === 'ssh'
         ? await remoteFor(id).request('save-file', { path: relativePath, page: pageIndex, revision, data: Buffer.from(content, 'utf8').toString('base64') })
         : await saveProjectFile(project, relativePath, pageIndex, revision, content);
-      if (preview.kind === 'html') return { ...preview, ...previewResources.open(project, relativePath, 'html') };
+      if (['html', 'markdown'].includes(preview.kind)) return { ...preview, ...previewResources.open(project, relativePath, preview.kind) };
       return preview;
     } finally { fileSaves.delete(key); }
   });

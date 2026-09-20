@@ -33,12 +33,14 @@ class RemoteFilesTest(unittest.TestCase):
         png = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
         (self.root / "image-without-extension").write_bytes(png)
         (self.root / "page.html").write_text("<h1>Remote page</h1>", encoding="utf-8")
+        (self.root / "README.md").write_text("# 远程 Markdown\n\n**正文**", encoding="utf-8")
         (self.root / "clip.mp4").write_bytes(b"video fixture")
         listing = self.worker.directory("", 0)
         self.assertEqual(listing["entries"][0]["name"], "src")
         self.assertEqual(self.worker.preview("中文.txt", 0)["content"], "中文文件")
         self.assertEqual(self.worker.preview("image-without-extension", 0)["kind"], "image")
         self.assertEqual(self.worker.preview("page.html", 0)["kind"], "html")
+        self.assertEqual(self.worker.preview("README.md", 0)["kind"], "markdown")
         self.assertEqual(self.worker.preview("clip.mp4", 0)["kind"], "video")
         self.assertEqual(base64.b64decode(self.worker.read("中文.txt", 0, 6)), "中文".encode())
 

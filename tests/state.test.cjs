@@ -146,7 +146,7 @@ test('corrupt workspace is copied aside before a new workspace can be saved', t 
 });
 
 test('settings reject invalid layout and font values', () => {
-  assert.deepEqual(cleanSettings({ columns: 999, fontSize: -2, notifications: 'yes', sound: false }), { columns: 0, fontSize: 12, focusAnimation: 'smooth', notifications: true, sound: false, closeToTray: true, explorerCollapsed: false, restoreSessions: true });
+  assert.deepEqual(cleanSettings({ columns: 999, fontSize: -2, notifications: 'yes', sound: false }), { columns: 0, fontSize: 12, focusAnimation: 'smooth', theme: 'forest', notifications: true, sound: false, closeToTray: true, explorerCollapsed: false, restoreSessions: true });
   assert.equal(cleanSettings({ focusAnimation: 'invalid' }).focusAnimation, 'smooth');
   assert.equal(cleanSettings({ focusAnimation: 'system' }).focusAnimation, 'system');
   assert.equal(cleanSettings({ focusAnimation: 'off' }).focusAnimation, 'off');

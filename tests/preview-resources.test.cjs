@@ -30,6 +30,18 @@ test('HTML resources resolve relative and parent paths within the project', asyn
   assert.equal(image.path, await fs.realpath(path.join(project.path, 'assets', '图片 #1.png')));
 });
 
+test('Markdown resource capabilities allow project images but not scripts or documents', async t => {
+  const { project, resources } = await setup(t);
+  await fs.writeFile(path.join(project.path, 'reports', 'README.md'), '# Markdown');
+  await fs.writeFile(path.join(project.path, 'assets', 'code.js'), 'alert(1)');
+  const view = resources.open(project, 'reports/README.md', 'markdown');
+  assert.equal((await resources.resolve(new URL('../assets/' + encodeURIComponent('图片 #1.png'), view.url).href)).mimeType, 'image/png');
+  await assert.rejects(resources.resolve(new URL('../assets/code.js', view.url).href));
+  await assert.rejects(resources.resolve(view.url));
+  resources.close(view.previewId);
+  await assert.rejects(resources.resolve(new URL('../assets/' + encodeURIComponent('图片 #1.png'), view.url).href));
+});
+
 test('image capability only serves the selected image and expires on close', async t => {
   const { project, resources } = await setup(t);
   const view = resources.open(project, 'assets/图片 #1.png', 'image');

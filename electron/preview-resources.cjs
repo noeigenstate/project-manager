@@ -59,8 +59,8 @@ class PreviewResources {
     if (!session || address.username || address.password || address.port) throw new Error('Preview expired');
     const relativePath = decodeURIComponent(address.pathname).replace(/^\//, '');
     if (!relativePath || !allowsHiddenPath(session, relativePath)) throw new Error('Hidden paths are not preview resources');
-    if (session.kind !== 'html' && relativePath !== session.filePath.replace(/\\/g, '/')) throw new Error('Media preview is limited to the selected file');
-    const mimeType = session.kind !== 'html' && session.mimeType ? session.mimeType : WEB_TYPES[path.extname(relativePath).toLowerCase()];
+    if (!['html', 'markdown'].includes(session.kind) && relativePath !== session.filePath.replace(/\\/g, '/')) throw new Error('Media preview is limited to the selected file');
+    const mimeType = session.kind === 'markdown' ? IMAGE_TYPES[path.extname(relativePath).toLowerCase()] : session.kind !== 'html' && session.mimeType ? session.mimeType : WEB_TYPES[path.extname(relativePath).toLowerCase()];
     if (!mimeType) throw new Error('Unsupported preview resource');
     let resolved, size, readChunk;
     if (session.project.kind === 'ssh') {

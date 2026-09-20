@@ -60,6 +60,7 @@ async function readProjectFile(project, relativePath, pageIndex = 0) {
     const base = { path: relativePath, name: path.basename(relativePath), size: stat.size, modifiedAt: stat.mtimeMs, revision: fileRevision(stat) };
     const extension = path.extname(relativePath).toLowerCase();
     const isHtml = extension === '.html' || extension === '.htm';
+    const isMarkdown = ['.md', '.markdown', '.mdown', '.mkd'].includes(extension);
     const signature = Buffer.alloc(Math.min(stat.size, 64));
     await handle.read(signature, 0, signature.length, 0);
     const imageType = imageTypeFromBytes(signature) || IMAGE_TYPES[extension];
@@ -101,7 +102,7 @@ async function readProjectFile(project, relativePath, pageIndex = 0) {
     if (encoding === 'utf-8' && data.includes(0)) return { ...base, kind: 'unsupported', reason: '二进制文件不支持文本预览。' };
     try {
       const content = new TextDecoder(encoding, { fatal: true, ignoreBOM: true }).decode(data);
-      return { ...base, kind: isHtml ? 'html' : 'text', content, page: { index, count, byteStart: readStart + byteStart, byteEnd: readStart + byteEnd, encoding } };
+      return { ...base, kind: isHtml ? 'html' : isMarkdown ? 'markdown' : 'text', content, page: { index, count, byteStart: readStart + byteStart, byteEnd: readStart + byteEnd, encoding } };
     } catch {
       return { ...base, kind: 'unsupported', reason: '此文件的编码不支持预览，请在 VS Code 中打开。' };
     }
@@ -112,7 +113,7 @@ async function saveProjectFile(project, relativePath, pageIndex, revision, conte
   if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 1024 * 1024) throw new Error('本次编辑内容超过 1 MB，请分段保存。');
   if (typeof revision !== 'string') throw new Error('请重新读取文件后编辑。');
   const preview = await readProjectFile(project, relativePath, pageIndex);
-  if (!['text', 'html'].includes(preview.kind)) throw new Error('此文件不支持文本编辑。');
+  if (!['text', 'html', 'markdown'].includes(preview.kind)) throw new Error('此文件不支持文本编辑。');
   if (preview.revision !== revision) throw new Error('文件已被其他程序修改，请刷新后重新编辑，避免覆盖新内容。');
   const resolved = await resolveProjectPath(project, relativePath);
   const temporary = path.join(path.dirname(resolved), `.project-grid-edit-${randomUUID()}.tmp`);

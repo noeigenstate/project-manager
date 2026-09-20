@@ -1,7 +1,7 @@
 {
   "name": "project-grid",
   "productName": "Project Grid",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "多个项目、多个真实终端，Codex 完成后一眼可见。",
   "author": "Project Grid",
   "license": "MIT",
@@ -23,6 +23,7 @@
     "test:motion": "node scripts/focus-motion-smoke.mjs",
     "test:completion": "node scripts/completion-smoke.mjs",
     "test:editor-terminals": "node scripts/editor-terminals-smoke.mjs",
+    "test:themes-markdown": "node scripts/themes-markdown-smoke.mjs",
     "dist": "node -e \"require('electron')\" && npm run build && electron-builder --win --x64 --publish never",
     "pack": "node -e \"require('electron')\" && npm run build && electron-builder --win --dir --x64"
   },
@@ -40,8 +41,10 @@
     "@vitejs/plugin-react": "latest",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
+    "dompurify": "3.4.15",
     "electron": "44.3.0",
     "electron-builder": "26.15.3",
+    "marked": "18.0.13",
     "playwright": "1.63.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

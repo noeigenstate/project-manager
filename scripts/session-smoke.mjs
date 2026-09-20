@@ -172,7 +172,7 @@ try {
   const remotePanel = page.locator(`[data-project-id="${remote.id}"]`);
   await remotePanel.getByRole('button', { name: '全屏查看 远程测试项目', exact: true }).click();
   await page.getByRole('treeitem', { name: 'README.md', exact: true }).click();
-  await page.getByLabel('文件文本内容', { exact: true }).getByText('REMOTE_TEXT_PREVIEW 中文', { exact: true }).waitFor();
+  await waitFor(async () => (await page.getByLabel('文件编辑器', { exact: true }).inputValue()).includes('REMOTE_TEXT_PREVIEW 中文'), 'remote text opens directly in the editor');
   await page.getByRole('treeitem', { name: '图片.png', exact: true }).click();
   await waitFor(async () => page.locator('img.preview-image').evaluate(image => image.complete && image.naturalWidth === 256), 'SSH PNG streamed');
   await page.getByRole('treeitem', { name: 'page.html', exact: true }).click();

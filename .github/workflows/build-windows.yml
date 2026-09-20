@@ -112,6 +112,9 @@ jobs:
       - name: Verify editing, path copying and independent split terminals
         run: npm run test:editor-terminals -- --packaged
 
+      - name: Verify persistent themes, automatic editing and Markdown previews
+        run: npm run test:themes-markdown -- --packaged
+
       - name: Create checksum and build notes
         run: |
           $version = '${{ steps.version.outputs.version }}'
@@ -168,6 +171,7 @@ jobs:
             .test-output/workspace-*/*.png
             .test-output/focus-motion-*/*.png
             .test-output/editor-terminals-*/*.png
+            .test-output/themes-markdown-*/*.png
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
@@ -214,6 +218,8 @@ jobs:
           Install Codex CLI on the computer or Linux SSH host where your project runs.
 
           - Multiple project terminals with completion alerts.
+          - Choose Forest Light, Mountain Blue or Wild Red in Settings; themes apply immediately and persist without restarting terminals.
+          - Text/code files open directly in edit mode. Markdown previews render headings, tables, code, task lists, local/SSH images and links, including unsaved drafts.
           - Add independent terminals inside each project with automatic split layout, separate Codex identities and individual session recovery.
           - Edit text and HTML source, save with Ctrl+S, preserve encoding and untouched large-file segments, and detect external modification conflicts.
           - Explorer menus copy local or SSH absolute paths and project-relative paths; Ctrl+Shift+C copies absolute paths.

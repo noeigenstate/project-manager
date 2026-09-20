@@ -12,6 +12,7 @@ import { AddProjectDialog } from './AddProjectDialog';
 import { SSHAuthDialog } from './SSHAuthDialog';
 import { useProjectReorder } from './useProjectReorder';
 import { useProjectFocusMotion } from './useProjectFocusMotion';
+import { applyTheme, themes } from './themes';
 const VoiceDialog = lazy(() => import('./VoiceDialog').then(module => ({ default: module.VoiceDialog })));
 const FilePreview = lazy(() => import('./FilePreview').then(module => ({ default: module.FilePreview })));
 
@@ -140,6 +141,13 @@ function SettingsDialog({ settings, updates, onCheckUpdate, onInstallUpdate, onD
     <div className="dialog-content">
       <div className="dialog-heading"><div><span className="eyebrow">PREFERENCES</span><h2>工作台设置</h2></div><IconButton label="关闭设置" onClick={close}><X size={18} /></IconButton></div>
       <p className="settings-intro">按照你的开发习惯调整提醒和终端。</p>
+      <fieldset className="theme-picker"><legend>外观主题</legend><div className="theme-options">
+        {themes.map(theme => <label key={theme.id} className={`theme-option ${settings.theme === theme.id ? 'is-selected' : ''}`}>
+          <input type="radio" name="theme" value={theme.id} checked={settings.theme === theme.id} aria-label={theme.name} onChange={() => update({ theme: theme.id })} />
+          <span className="theme-swatch" data-theme-preview={theme.id} aria-hidden="true"><span className="theme-mini-window"><i /><i /><i /></span><span className="theme-check"><Check size={12} weight="bold" /></span></span>
+          <span className="theme-name">{theme.name}</span><small>{theme.description}</small>
+        </label>)}
+      </div></fieldset>
       <label className="setting-row"><span><Bell size={19} /><span><b>桌面通知</b><small>Codex 本轮结束时发送系统通知</small></span></span><input type="checkbox" checked={settings.notifications} onChange={e => update({ notifications: e.target.checked })} /></label>
       <label className="setting-row"><span><SpeakerHigh size={19} /><span><b>通知声音</b><small>播放系统默认提示音</small></span></span><input type="checkbox" checked={settings.sound} onChange={e => update({ sound: e.target.checked })} /></label>
       <label className="setting-row"><span><Monitor size={19} /><span><b>关闭到托盘</b><small>关闭窗口后，终端和任务继续运行</small></span></span><input type="checkbox" checked={settings.closeToTray} onChange={e => update({ closeToTray: e.target.checked })} /></label>
@@ -169,6 +177,7 @@ function SettingsDialog({ settings, updates, onCheckUpdate, onInstallUpdate, onD
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  useEffect(() => { if (workspace) applyTheme(workspace.settings.theme); }, [workspace?.settings.theme]);
   const [updates, setUpdates] = useState<AppUpdateState | null>(null);
   const [query, setQuery] = useState('');
   const { root: focusMotionRoot, focusedId, focus: setFocusedId } = useProjectFocusMotion(workspace?.settings.focusAnimation || 'smooth');
@@ -287,7 +296,7 @@ export function App() {
         onSettings={() => setSettingsOpen(true)} onOpenCode={() => perform(api.openInCode(focus.id))} />}
       <main className="main-workspace">
         {workspace.warning && <div className="workspace-warning"><Info size={15} />{workspace.warning}</div>}
-        {focusedId && previewFile?.projectId === focusedId && <Suspense fallback={null}><FilePreview key={`${focusedId}:${previewFile.path}`} projectId={focusedId} filePath={previewFile.path} onClose={async () => { if (await allowNavigation()) setPreviewFile(null); }} onError={reportError} registerGuard={registerEditorGuard} /></Suspense>}
+        {focusedId && previewFile?.projectId === focusedId && <Suspense fallback={null}><FilePreview key={`${focusedId}:${previewFile.path}`} projectId={focusedId} filePath={previewFile.path} onClose={async () => { if (await allowNavigation()) setPreviewFile(null); }} onOpenFile={async path => { if (await allowNavigation()) setPreviewFile({ projectId: focusedId, path }); }} onError={reportError} registerGuard={registerEditorGuard} /></Suspense>}
         <div className={`grid-area ${!projects.length ? 'empty-area' : ''}`} style={{ visibility: focusedId && previewFile?.projectId === focusedId ? 'hidden' : undefined }}>
           {!projects.length ? <div className="empty-workspace">
             <div className="empty-illustration" aria-hidden="true"><div className="illustration-tile"><span /><i /><i /><i /></div><div className="illustration-tile red-tile"><span /><i /><i /><b /></div><div className="illustration-tile green-tile"><Check size={22} /></div><div className="illustration-tile"><span /><i /><i /></div></div>

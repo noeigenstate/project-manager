@@ -389,7 +389,7 @@ class Worker:
             if encoding == "utf-8" and b"\0" in page: return dict(base, kind="unsupported", reason="二进制文件不支持文本预览。")
             try: content = page.decode(encoding)
             except UnicodeError: return dict(base, kind="unsupported", reason="此文件的编码不支持预览。")
-            return dict(base, kind="html" if extension in (".html", ".htm") else "text", content=content, page={"index": index, "count": count, "byteStart": read_start + byte_start, "byteEnd": read_start + byte_end, "encoding": encoding})
+            return dict(base, kind="html" if extension in (".html", ".htm") else "markdown" if extension in (".md", ".markdown", ".mdown", ".mkd") else "text", content=content, page={"index": index, "count": count, "byteStart": read_start + byte_start, "byteEnd": read_start + byte_end, "encoding": encoding})
 
     @staticmethod
     def file_revision(info):
@@ -400,7 +400,7 @@ class Worker:
         if len(content_bytes) > 1024 * 1024: raise ValueError("本次编辑内容超过 1 MB，请分段保存。")
         content = content_bytes.decode("utf-8")
         preview = self.preview(relative, page_index)
-        if preview["kind"] not in ("text", "html"): raise ValueError("此文件不支持文本编辑。")
+        if preview["kind"] not in ("text", "html", "markdown"): raise ValueError("此文件不支持文本编辑。")
         if preview["revision"] != revision: raise ValueError("文件已被其他程序修改，请刷新后重新编辑，避免覆盖新内容。")
         filename = self.resolve(relative)
         temporary = None

@@ -8,7 +8,7 @@ export type Project = {
   terminals: ProjectTerminal[];
 };
 export type ProjectTerminal = { id: string; title: string; sessionId: string | null; status: Project['status']; codexActive: boolean; codexActivity: Project['codexActivity']; shellReady: boolean; codexAvailable: boolean | null; lastActivityAt: number | null; lastCompletedAt: number | null; error: string | null };
-export type Settings = { columns: number; notifications: boolean; sound: boolean; closeToTray: boolean; explorerCollapsed: boolean; fontSize: number; restoreSessions: boolean; focusAnimation: 'smooth' | 'system' | 'off' };
+export type Settings = { columns: number; notifications: boolean; sound: boolean; closeToTray: boolean; explorerCollapsed: boolean; fontSize: number; restoreSessions: boolean; focusAnimation: 'smooth' | 'system' | 'off'; theme: 'forest' | 'mountain-blue' | 'wild-red' };
 export type SSHInfo = { hosts: string[]; configFile: string; configExists: boolean; sshPath: string; source: string };
 export type SSHAuthPrompt = { id: string; host: string; message: string; kind: 'secret' | 'confirm' };
 export type Workspace = { projects: Project[]; settings: Settings; warning: string | null; platform: string; version: string };
@@ -23,7 +23,7 @@ export type AppUpdateState = { supported: boolean; currentVersion: string; statu
 export type FilePreview = { path: string; name: string; size: number; modifiedAt: number; revision: string } & (
   { kind: 'text'; content: string; page: TextPage } | { kind: 'unsupported'; reason: string }
   | { kind: 'image' | 'video'; mimeType: string; url: string; previewId: string }
-  | { kind: 'html'; content: string; page: TextPage; url: string; previewId: string }
+  | { kind: 'html' | 'markdown'; content: string; page: TextPage; url: string; previewId: string }
 );
 export type Bridge = {
   getState(): Promise<Result<Workspace>>;

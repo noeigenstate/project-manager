@@ -237,8 +237,8 @@ try {
   await page.getByRole('treeitem', { name: 'components', exact: true }).click();
   await page.getByRole('treeitem', { name: 'panel.tsx', exact: true }).waitFor();
   await page.getByRole('treeitem', { name: 'README.md', exact: true }).click();
-  await page.getByLabel('文件文本内容', { exact: true }).waitFor();
-  assert.ok((await page.getByLabel('文件文本内容', { exact: true }).innerText()).includes('目录预览验证'));
+  await page.getByLabel('文件编辑器', { exact: true }).waitFor();
+  assert.ok((await page.getByLabel('文件编辑器', { exact: true }).inputValue()).includes('目录预览验证'));
   assert.equal(await page.evaluate(() => globalThis.fileCodeRan), undefined, 'file markup is displayed as text');
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[0].sessionId, sessionBefore);
   await page.screenshot({ path: path.join(output, 'file-preview.png') });
@@ -279,7 +279,7 @@ try {
   assert.deepEqual(isolated, { parentAccessible: false, bridge: 'undefined', node: 'undefined' });
   await page.screenshot({ path: path.join(output, 'html-preview.png') });
   await page.getByRole('button', { name: '源码', exact: true }).click();
-  assert.ok((await page.getByLabel('文件文本内容', { exact: true }).innerText()).includes('<h1>HTML 页面已渲染</h1>'));
+  assert.ok((await page.getByLabel('文件编辑器', { exact: true }).inputValue()).includes('<h1>HTML 页面已渲染</h1>'));
   await page.getByRole('button', { name: '页面', exact: true }).click();
   await htmlFrame.getByRole('heading', { name: 'HTML 页面已渲染' }).waitFor();
   await page.getByRole('button', { name: '返回终端', exact: true }).click();
@@ -290,12 +290,14 @@ try {
   await waitFor(async () => page.locator('img.preview-image').evaluate(image => image.complete && image.naturalWidth === 256), 'image signature loads without an extension');
   await page.getByRole('button', { name: '返回终端', exact: true }).click();
   await page.getByRole('treeitem', { name: 'large.log', exact: true }).click();
+  await page.getByRole('button', { name: '结束编辑', exact: true }).click();
   await page.getByText('LARGE_FILE_START', { exact: false }).waitFor();
   assert.ok(await page.getByRole('button', { name: '下一页', exact: true }).isEnabled());
   assert.ok(await page.locator('.line-numbers > span').count() < 150, 'large files only render visible lines');
   await page.locator('.file-code-scroll').evaluate(node => { node.scrollTop = node.scrollHeight; });
   await waitFor(async () => page.locator('.line-numbers > span').first().innerText().then(value => Number(value) > 100), 'virtual text scrolls to later lines');
   await page.getByRole('button', { name: '末页', exact: true }).click();
+  await page.getByRole('button', { name: '结束编辑', exact: true }).click();
   await page.getByRole('button', { name: '首页', exact: true }).waitFor();
   await page.locator('.file-code-scroll').evaluate(node => { node.scrollTop = node.scrollHeight; });
   await page.getByText('LARGE_FILE_END', { exact: false }).waitFor();
@@ -308,7 +310,7 @@ try {
   await page.frameLocator('iframe[title="HTML 页面预览"]').getByRole('heading', { name: '大 HTML 页面' }).waitFor();
   await page.getByRole('button', { name: '源码', exact: true }).click();
   await page.getByRole('button', { name: '末页', exact: true }).click();
-  await page.getByText('LARGE_HTML_END', { exact: false }).waitFor();
+  await waitFor(async () => (await page.getByLabel('文件编辑器', { exact: true }).inputValue()).includes('LARGE_HTML_END'), 'last HTML source page is editable');
   await page.getByRole('button', { name: '返回终端', exact: true }).click();
   console.log('PASS: large text and HTML use bounded, Unicode-safe pages with virtual scrolling and page navigation');
 
