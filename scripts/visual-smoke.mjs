@@ -12,6 +12,7 @@ const output = path.join(root, '.test-output', `visual-${Date.now()}`);
 const profile = path.join(output, 'profile'), home = path.join(output, 'codex-home');
 const names = ['界面开发', '文档整理', '本地工具', '服务接口', '数据处理', '工具项目'];
 const projects = names.map((name, index) => ({ id: randomUUID(), name, path: path.join(output, name), unread: index === 1 ? 1 : 0, lastCompletedAt: index === 1 ? Date.now() - 60000 : null, restore: { terminal: false, codex: false } }));
+const doneFile = path.join(projects[0].path, 'task.done');
 for (const directory of [profile, path.join(home, 'sessions'), ...projects.map(project => project.path)]) await fs.mkdir(directory, { recursive: true });
 await fs.writeFile(path.join(projects[0].path, 'README.md'), '# 清晰的工作区\n\n保留文字、代码和状态的层次。\n');
 await fs.writeFile(path.join(profile, 'workspace.json'), JSON.stringify({ version: 2, projects, settings: { columns: 3, notifications: false, sound: false, closeToTray: false, restoreSessions: false, fontSize: 14 } }));
@@ -38,7 +39,6 @@ try {
   }
   const thread = randomUUID(), transcript = path.join(home, 'sessions', `rollout-${thread}.jsonl`);
   const record = (type, turn) => JSON.stringify({ type: 'event_msg', timestamp: new Date().toISOString(), payload: { type, turn_id: turn } }) + '\n';
-  const doneFile = path.join(projects[0].path, 'task.done');
   const quote = value => "'" + value.replaceAll("'", "''") + "'";
   await write(0, `Clear-Host; Write-Host 'Project Grid / 界面开发'; Write-Host ''; Write-Host '  正在处理：验证独立项目的任务状态' -ForegroundColor Cyan; Write-Host '  背景任务运行中，可操作其他窗口。'; Write-Host ''; Send-ProjectGridEvent 'codex-started'; for ($pgVisual=0; $pgVisual -lt 2400 -and -not (Test-Path -LiteralPath ${quote(doneFile)}); $pgVisual++) { Start-Sleep -Milliseconds 100 }; Send-ProjectGridEvent 'codex-exited'\r`);
   await waitFor(async () => (await state()).projects[0].codexActive, 'offline task active');
@@ -169,9 +169,28 @@ try {
   await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ packaged, timings, lens, liveSamples, compact, compactEdges, errors }, null, 2));
   console.log(`PASS: live 2-second synchronized lights, finite completion, quiet idle, all themes, high DPI, compact controls, explorer and preserved small-card input. Screenshots: ${output}`);
 } catch (error) {
+  console.error(error);
   if (page) {
     await page.screenshot({ path: path.join(output, 'failure.png') }).catch(() => {});
     console.error('Visual test viewport:', await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scale: devicePixelRatio })).catch(() => null));
   }
   throw error;
-} finally { if (app) await app.close(); }
+} finally {
+  // Release our simulated task and exit only this isolated profile's shells
+  // before Electron tears down ConPTY handles.
+  await fs.writeFile(doneFile, 'done');
+  if (app) {
+    try {
+      if (page && !page.isClosed()) {
+        const active = (await state()).projects.filter(project => project.sessionId && project.status !== 'exited');
+        if (active.some(project => project.id === projects[0].id)) await waitFor(async () => {
+          const project = (await state()).projects.find(project => project.id === projects[0].id);
+          return project.shellReady || project.status === 'exited';
+        }, 'visual task returned to its shell');
+        for (const project of active) await page.evaluate(id => window.projectGrid.writeTerminal(id, '\x03exit\r'), project.id);
+        await waitFor(async () => (await state()).projects.every(project => !project.sessionId || project.status === 'exited'), 'visual fixture shells exited');
+        console.log('PASS: isolated visual task and terminal processes exited before closing the app');
+      }
+    } finally { await app.close(); }
+  }
+}
