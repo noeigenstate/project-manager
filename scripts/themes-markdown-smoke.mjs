@@ -11,7 +11,7 @@ const { createSSHFixture } = require('../tests/helpers/ssh-fixture.cjs');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.join(root, '.test-output', `themes-markdown-${Date.now()}`), profile = path.join(output, 'profile');
 const ssh = await createSSHFixture({ nativeWorker: false });
-const projects = ['产品工作台', '等待查看', '开发完成'].map((name, index) => ({ id: randomUUID(), name, path: path.join(output, `project-${index}`), kind: 'local', unread: index === 1 ? 1 : 0, done: index === 2, lastCompletedAt: index ? Date.now() : null, restore: { terminal: false, codex: false } }));
+const projects = ['产品工作台', '等待查看', '工具项目'].map((name, index) => ({ id: randomUUID(), name, path: path.join(output, `project-${index}`), kind: 'local', unread: index === 1 ? 1 : 0, lastCompletedAt: index ? Date.now() : null, restore: { terminal: false, codex: false } }));
 await fs.mkdir(profile, { recursive: true });
 for (const project of projects) await fs.mkdir(path.join(project.path, 'docs'), { recursive: true });
 const content = '# Project Grid\n\n清楚地看见每一个项目，随时接着工作。\n\n## 功能\n\n- **多终端分屏**：保留各自的输入与会话。\n- [x] 编辑文件\n- [ ] 查看结果\n\n> 按 Ctrl+S 保存，未保存的内容也可以预览。\n\n| 功能 | 状态 |\n| --- | --- |\n| 主题切换 | 可用 |\n| Markdown | 可用 |\n\n```ts\nconst message = "Hello, Project Grid";\nconsole.log(message);\n```\n\n![项目图标](../assets/icon.png)\n\n[打开说明](../note.txt) · [网页链接](https://example.com/docs) · [回到功能](#功能)\n';
@@ -60,8 +60,8 @@ try {
     assert.equal((await state()).projects[0].sessionId, sessionId);
     assert.ok(await first.locator('.terminal-host').evaluate(node => node === globalThis.originalThemeTerminal));
     assert.deepEqual(await colors(), originalColors);
-    const signal = await page.locator(`[data-project-id="${projects[2].id}"]`).evaluate(node => getComputedStyle(node).getPropertyValue('--signal-rgb').trim());
-    assert.equal(signal, '75, 237, 164');
+    const signal = await page.locator(`[data-project-id="${projects[1].id}"]`).evaluate(node => getComputedStyle(node).getPropertyValue('--signal-rgb').trim());
+    assert.equal(signal, '255, 134, 212');
     await page.screenshot({ path: path.join(output, `${id}-overview.png`) });
   }
   assert.ok((await page.evaluate(id => window.projectGrid.attachTerminal(id), projects[0].id)).value.data.includes('PENDING_THEME_DRAFT'));

@@ -104,7 +104,7 @@ async function readProjectFile(project, relativePath, pageIndex = 0) {
       const content = new TextDecoder(encoding, { fatal: true, ignoreBOM: true }).decode(data);
       return { ...base, kind: isHtml ? 'html' : isMarkdown ? 'markdown' : 'text', content, page: { index, count, byteStart: readStart + byteStart, byteEnd: readStart + byteEnd, encoding } };
     } catch {
-      return { ...base, kind: 'unsupported', reason: '此文件的编码不支持预览，请在 VS Code 中打开。' };
+      return { ...base, kind: 'unsupported', reason: '暂不支持此文件的文本编码。' };
     }
   } finally { await handle.close(); }
 }

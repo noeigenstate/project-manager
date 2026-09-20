@@ -1,7 +1,7 @@
 {
   "name": "project-grid",
   "productName": "Project Grid",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "多个项目、多个真实终端，Codex 完成后一眼可见。",
   "author": "Project Grid",
   "license": "MIT",
@@ -25,6 +25,9 @@
     "test:editor-terminals": "node scripts/editor-terminals-smoke.mjs",
     "test:themes-markdown": "node scripts/themes-markdown-smoke.mjs",
     "test:visual": "node scripts/visual-smoke.mjs",
+    "test:navigation": "node scripts/navigation-smoke.mjs",
+    "test:clipboard": "node scripts/clipboard-smoke.mjs",
+    "test:material": "node scripts/material-smoke.mjs",
     "dist": "node -e \"require('electron')\" && npm run build && electron-builder --win --x64 --publish never",
     "pack": "node -e \"require('electron')\" && npm run build && electron-builder --win --dir --x64"
   },
@@ -76,7 +79,12 @@
       {
         "from": "integration",
         "to": "integration",
-        "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc", "!**/*.cs"]
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/*.cs"
+        ]
       }
     ],
     "asarUnpack": [

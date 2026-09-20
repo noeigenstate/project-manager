@@ -31,20 +31,29 @@ class WorkspaceStore {
         if (p.kind === 'ssh') { try { normalizeSSH({ ...p.ssh, path: p.path }); } catch { return false; } }
         else if (!path.isAbsolute(p.path)) return false;
         ids.add(p.id); return true;
-      }).map(p => ({
+      }).map(p => {
+        const project = {
         id: p.id, name: String(p.name || path.basename(p.path)).slice(0, 120), path: p.path,
         kind: p.kind === 'ssh' ? 'ssh' : 'local',
         ...(p.kind === 'ssh' ? { ssh: { host: p.ssh.host, configFile: p.ssh.configFile || null } } : {}),
+        primaryTerminalClosed: typeof p.primaryTerminalClosed === 'boolean' ? p.primaryTerminalClosed : p.restore?.terminal === false && Array.isArray(p.terminals) && p.terminals.length > 0,
         restore: p.restore && typeof p.restore === 'object' ? { terminal: p.restore.terminal === true, codex: p.restore.codex === true, cwd: typeof p.restore.cwd === 'string' && (p.kind === 'ssh' ? p.restore.cwd.startsWith('/') : path.isAbsolute(p.restore.cwd)) ? p.restore.cwd : null, ...(/^[a-f\d-]{36}$/i.test(p.restore.threadId || '') ? { threadId: p.restore.threadId } : {}) } : null,
         terminals: Array.isArray(p.terminals) ? p.terminals.filter(item => item && /^[a-f\d-]{36}$/i.test(item.id || '')).map(item => ({ id: item.id, restore: { terminal: item.restore?.terminal === true, codex: item.restore?.codex === true,
           cwd: typeof item.restore?.cwd === 'string' && (p.kind === 'ssh' ? item.restore.cwd.startsWith('/') : path.isAbsolute(item.restore.cwd)) ? item.restore.cwd : null,
           ...(/^[a-f\d-]{36}$/i.test(item.restore?.threadId || '') ? { threadId: item.restore.threadId } : {}) } })) : [],
         unread: Number.isSafeInteger(p.unread) && p.unread > 0 ? p.unread : 0,
-        done: p.done === true,
         lastCompletedAt: typeof p.lastCompletedAt === 'number' ? p.lastCompletedAt : null,
         completionArmed: p.completionArmed === true,
         seenEvents: Array.isArray(p.seenEvents) ? p.seenEvents.filter(x => typeof x === 'string').slice(-128) : [],
-      }));
+        };
+        // Older releases skipped every terminal of manually finished projects.
+        // Keep that stopped intent when removing the obsolete project flag.
+        if (p.done === true) {
+          for (const record of [project, ...project.terminals]) record.restore = { ...record.restore, terminal: false, codex: false };
+          project.completionArmed = false;
+        }
+        return project;
+      });
       this.settings = cleanSettings(value.settings);
       const terminalIds = new Set(this.projects.map(project => project.id));
       for (const project of this.projects) project.terminals = project.terminals.filter(item => { if (terminalIds.has(item.id)) return false; terminalIds.add(item.id); return true; });
@@ -61,7 +70,7 @@ class WorkspaceStore {
     const key = process.platform === 'win32' ? canonical.toLowerCase() : canonical;
     const existing = this.projects.find(p => p.kind !== 'ssh' && (process.platform === 'win32' ? p.path.toLowerCase() : p.path) === key);
     if (existing) return { project: existing, added: false };
-    const project = { id: randomUUID(), name: path.basename(canonical) || canonical, path: canonical, kind: 'local', restore: { terminal: false, codex: false }, unread: 0, done: false, lastCompletedAt: null, completionArmed: false, seenEvents: [] };
+    const project = { id: randomUUID(), name: path.basename(canonical) || canonical, path: canonical, kind: 'local', primaryTerminalClosed: false, restore: { terminal: false, codex: false }, unread: 0, lastCompletedAt: null, completionArmed: false, seenEvents: [] };
     this.projects.push(project);
     this.save();
     return { project, added: true };
@@ -72,7 +81,7 @@ class WorkspaceStore {
     const existing = this.projects.find(p => p.kind === 'ssh' && p.ssh.host === connection.host && p.ssh.configFile === connection.configFile && p.path === connection.path);
     if (existing) return { project: existing, added: false };
     const base = path.posix.basename(connection.path);
-    const project = { id: randomUUID(), name: String(input.name || (base === '~' ? connection.host : base) || connection.host).slice(0, 120), kind: 'ssh', path: connection.path, ssh: { host: connection.host, configFile: connection.configFile }, restore: { terminal: false, codex: false }, unread: 0, done: false, lastCompletedAt: null, completionArmed: false, seenEvents: [] };
+    const project = { id: randomUUID(), name: String(input.name || (base === '~' ? connection.host : base) || connection.host).slice(0, 120), kind: 'ssh', path: connection.path, ssh: { host: connection.host, configFile: connection.configFile }, primaryTerminalClosed: false, restore: { terminal: false, codex: false }, unread: 0, lastCompletedAt: null, completionArmed: false, seenEvents: [] };
     this.projects.push(project); this.save(); return { project, added: true };
   }
 
@@ -86,7 +95,12 @@ class WorkspaceStore {
     if (typeof patch.cwd === 'string' && patch.cwd.length <= 4096 && !/[\0\r\n]/.test(patch.cwd) && (project.kind === 'ssh' ? patch.cwd.startsWith('/') : path.isAbsolute(patch.cwd))) next.cwd = patch.cwd;
     if (patch.threadId === null) delete next.threadId;
     else if (/^[a-f\d-]{36}$/i.test(patch.threadId || '')) next.threadId = patch.threadId;
-    if (JSON.stringify(next) === JSON.stringify(record.restore)) return;
+    const wasClosed = project.primaryTerminalClosed;
+    if (record === project) {
+      if (patch.terminal === true) project.primaryTerminalClosed = false;
+      else if (patch.primaryClosed === true) project.primaryTerminalClosed = true;
+    }
+    if (JSON.stringify(next) === JSON.stringify(record.restore) && wasClosed === project.primaryTerminalClosed) return;
     record.restore = next;
     this.save();
   }
@@ -110,7 +124,7 @@ class WorkspaceStore {
   removeTerminal(id) {
     const found = this.findTerminal(id);
     if (!found) return;
-    if (found.project.id === id) this.setRestore(id, { terminal: false, codex: false, threadId: null });
+    if (found.project.id === id) this.setRestore(id, { terminal: false, codex: false, threadId: null, primaryClosed: true });
     else { found.project.terminals = found.project.terminals.filter(item => item.id !== id); this.save(); }
   }
 
@@ -146,7 +160,6 @@ class WorkspaceStore {
     if (!project.completionArmed) { this.save(); return false; }
     project.completionArmed = false;
     project.unread += 1;
-    project.done = false;
     project.lastCompletedAt = now;
     this.save();
     return true;
@@ -158,19 +171,21 @@ class WorkspaceStore {
     this.save();
   }
 
-  markDone(id, done) {
-    const project = this.projects.find(p => p.id === id);
-    if (project) { project.done = done === true; if (project.done) { project.unread = 0; project.completionArmed = false; } }
-    this.save();
-  }
-
   remove(id) { this.projects = this.projects.filter(p => p.id !== id); this.save(); }
   updateSettings(patch) { this.settings = cleanSettings({ ...this.settings, ...patch }); this.save(); }
   save() {
     fs.mkdirSync(path.dirname(this.filename), { recursive: true });
     const tmp = `${this.filename}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify({ version: 2, projects: this.projects, settings: this.settings }, null, 2));
-    fs.renameSync(tmp, this.filename);
+    for (let attempt = 0; ; attempt++) {
+      try { fs.renameSync(tmp, this.filename); break; }
+      catch (error) {
+        if (process.platform !== 'win32' || !['EBUSY', 'EPERM', 'EACCES'].includes(error.code) || attempt >= 4) throw error;
+        // Brief Windows reader/indexer locks must not lose a newly captured
+        // session ID. Retain atomic replacement and stop after 100ms total.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, (attempt + 1) * 10);
+      }
+    }
   }
 }
 

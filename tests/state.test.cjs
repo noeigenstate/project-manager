@@ -24,6 +24,22 @@ test('adding the same real folder twice keeps one project', t => {
   assert.equal(store.projects.length, 1);
 });
 
+test('Windows transient save locks retry atomically and persistent failures remain explicit', { skip: process.platform !== 'win32' }, t => {
+  const { file, store, project } = fixture(t);
+  const rename = fs.renameSync; let attempts = 0, locked = 2;
+  t.mock.method(fs, 'renameSync', (source, target) => {
+    if (target === file && attempts++ < locked) { const error = new Error('file temporarily locked'); error.code = 'EBUSY'; throw error; }
+    return rename(source, target);
+  });
+  store.setRestore(project.id, { terminal: true, threadId: '00000000-0000-4000-8000-000000000003' });
+  assert.equal(attempts, 3);
+  assert.equal(new WorkspaceStore(file).projects[0].restore.threadId, '00000000-0000-4000-8000-000000000003');
+  assert.equal(fs.existsSync(file + '.tmp'), false);
+  const previous = fs.readFileSync(file, 'utf8'); attempts = 0; locked = Infinity;
+  assert.throws(() => store.save(), /temporarily locked/);
+  assert.equal(attempts, 5); assert.equal(fs.readFileSync(file, 'utf8'), previous);
+});
+
 test('extra terminals keep independent recovery identities and closing one preserves the others', t => {
   const { store, project, file } = fixture(t);
   const first = store.addTerminal(project.id), second = store.addTerminal(project.id);
@@ -37,6 +53,9 @@ test('extra terminals keep independent recovery identities and closing one prese
   assert.equal(reopened.findTerminal(second).project.id, project.id);
   reopened.removeTerminal(project.id);
   assert.equal(reopened.findTerminal(second).record.restore.terminal, true);
+  assert.equal(reopened.projects[0].primaryTerminalClosed, true);
+  reopened.setRestore(project.id, { terminal: true });
+  assert.equal(new WorkspaceStore(file).projects[0].primaryTerminalClosed, false);
 });
 
 test('turn completion is unread, deduplicated, and survives restarting the app', t => {
@@ -52,25 +71,21 @@ test('turn completion is unread, deduplicated, and survives restarting the app',
   assert.equal(restored.complete(project.id, 'thread:turn2'), false);
 });
 
-test('viewing a round does not mark the project finished; manual finish is green', t => {
+test('viewing a round clears unread without introducing a manual completion flag', t => {
   const { store, project, file } = fixture(t);
   store.expectCompletion(project.id);
   store.complete(project.id, 'thread:turn1');
   store.acknowledge(project.id);
   assert.equal(project.unread, 0);
-  assert.equal(project.done, false);
-  store.markDone(project.id, true);
-  assert.equal(new WorkspaceStore(file).projects[0].done, true);
-  store.markDone(project.id, false);
-  assert.equal(project.done, false);
+  assert.equal('done' in project, false);
+  assert.equal('done' in new WorkspaceStore(file).projects[0], false);
 });
 
-test('a genuinely new round can make a previously completed project need attention', t => {
+test('a genuinely new round can make a previously viewed round need attention', t => {
   const { store, project } = fixture(t);
-  store.markDone(project.id, true);
+  store.expectCompletion(project.id); store.complete(project.id, 'previous-turn'); store.acknowledge(project.id);
   store.expectCompletion(project.id);
   store.complete(project.id, 'thread:turn-new');
-  assert.equal(project.done, false);
   assert.equal(project.unread, 1);
 });
 
@@ -103,18 +118,16 @@ test('idle callbacks with different IDs never repeat an alert, even after viewin
   assert.equal(restored.projects[0].unread, 1);
 });
 
-test('pending input survives restart; marking finished closes the alert until another submission', t => {
+test('pending input survives restart; cancelling it closes the alert until another submission', t => {
   const { store, project, file } = fixture(t);
   store.expectCompletion(project.id);
   const restored = new WorkspaceStore(file);
   assert.equal(restored.complete(project.id, 'pending-work'), true);
   restored.expectCompletion(project.id);
-  restored.markDone(project.id, true);
+  restored.expectCompletion(project.id, false);
   assert.equal(restored.complete(project.id, 'late-background-work'), false);
-  assert.equal(restored.projects[0].done, true);
   restored.expectCompletion(project.id);
   assert.equal(restored.complete(project.id, 'new-instruction'), true);
-  assert.equal(restored.projects[0].done, false);
 });
 
 test('migrating a previous workspace does not rearm idle completion notifications', t => {
@@ -165,26 +178,54 @@ test('SSH projects retain their host, remote path and recovery state without bec
   assert.equal(store.addSSH({ host: 'other-host', path: '~/apps/demo' }).added, true);
 });
 
-test('older workspace records migrate without losing completion markers or guessing a terminal state', t => {
+test('legacy manual completion migrates to stopped recovery without retaining the removed flag', t => {
   const { file, projectDir } = fixture(t);
   fs.writeFileSync(file, JSON.stringify({ version: 1, projects: [{ id: 'legacy', name: '旧项目', path: projectDir, done: true, unread: 0 }], settings: {} }));
   const store = new WorkspaceStore(file);
   assert.equal(store.projects[0].kind, 'local');
-  assert.equal(store.projects[0].restore, null);
-  assert.equal(store.projects[0].done, true);
+  assert.deepEqual(store.projects[0].restore, { terminal: false, codex: false });
+  assert.equal('done' in store.projects[0], false);
   assert.equal(store.settings.restoreSessions, true);
+  store.save();
+  assert.equal('done' in JSON.parse(fs.readFileSync(file, 'utf8')).projects[0], false);
+  assert.equal(new WorkspaceStore(file).projects[0].restore.terminal, false);
+});
+
+test('removing manual completion keeps every legacy local/SSH split stopped and preserves session identity', t => {
+  const { file, projectDir } = fixture(t);
+  const thread = '00000000-0000-4000-8000-000000000001';
+  const split = '00000000-0000-4000-8000-000000000002';
+  for (const kind of ['local', 'ssh']) {
+    const cwd = kind === 'ssh' ? '/srv/project' : projectDir;
+    const restore = { terminal: true, codex: true, cwd, threadId: thread };
+    fs.writeFileSync(file, JSON.stringify({ version: 2, projects: [
+      { id: 'legacy', kind, path: cwd, ...(kind === 'ssh' ? { ssh: { host: 'dev-host' } } : {}), done: true, completionArmed: true, lastCompletedAt: 1234, seenEvents: ['old-turn'], restore, terminals: [{ id: split, restore }] },
+      { id: 'ordinary', path: projectDir, restore: { terminal: true, codex: true, cwd: projectDir } },
+      { id: 'older', path: projectDir },
+    ] }));
+    const store = new WorkspaceStore(file), project = store.projects[0];
+    assert.equal(project.primaryTerminalClosed, false, 'stopped legacy primary remains available to start manually');
+    for (const record of [project, ...project.terminals]) assert.deepEqual(record.restore, { ...restore, terminal: false, codex: false });
+    assert.equal(project.completionArmed, false); assert.equal(project.lastCompletedAt, 1234); assert.deepEqual(project.seenEvents, ['old-turn']);
+    assert.equal(store.projects[1].restore.terminal, true); assert.equal(store.projects[2].restore, null);
+    store.save(); assert.equal(new WorkspaceStore(file).projects[0].terminals[0].restore.terminal, false);
+    store.setRestore(split, { terminal: true, codex: false });
+    const reopened = new WorkspaceStore(file);
+    assert.equal(reopened.projects[0].restore.terminal, false);
+    assert.deepEqual(reopened.findTerminal(split).record.restore, { ...restore, terminal: true, codex: false });
+  }
 });
 
 test('swapping project positions persists order and preserves local/SSH state', t => {
   const { store, project, file } = fixture(t);
   const middle = store.addSSH({ host: 'linux-middle', path: '/srv/middle' }).project;
   const last = store.addSSH({ host: 'linux-last', path: '/srv/last' }).project;
-  store.expectCompletion(project.id); store.complete(project.id, 'turn-1'); store.markDone(last.id, true);
+  store.expectCompletion(project.id); store.complete(project.id, 'turn-1');
   store.setRestore(project.id, { terminal: true, codex: true });
   store.swapProjects(project.id, last.id);
   assert.deepEqual(store.projects, [last, middle, project]);
   assert.deepEqual(new WorkspaceStore(file).projects.map(item => item.id), [last.id, middle.id, project.id]);
-  assert.equal(project.unread, 1); assert.equal(last.done, true); assert.equal(project.restore.codex, true);
+  assert.equal(project.unread, 1); assert.equal(last.restore.terminal, false); assert.equal(project.restore.codex, true);
   const before = fs.readFileSync(file, 'utf8');
   store.swapProjects(project.id, project.id);
   assert.throws(() => store.swapProjects('missing', last.id), /项目不存在/);

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowClockwise, ArrowSquareOut, CaretLeft, CaretRight, Copy, FileText, FilmStrip, FloppyDisk, Globe, Image as ImageIcon, MagnifyingGlassMinus, MagnifyingGlassPlus, PencilSimple, SpinnerGap, Terminal, X } from '@phosphor-icons/react';
+import { ArrowClockwise, CaretLeft, CaretRight, Copy, FileText, FilmStrip, FloppyDisk, Globe, Image as ImageIcon, MagnifyingGlassMinus, MagnifyingGlassPlus, PencilSimple, SpinnerGap, Terminal, X } from '@phosphor-icons/react';
 import type { FilePreview as Preview, Result } from './types';
 const MarkdownPreview = lazy(() => import('./MarkdownPreview').then(module => ({ default: module.MarkdownPreview })));
 
@@ -30,10 +30,10 @@ function fileSize(bytes: number) {
   return `${(bytes / 1024 ** unit).toFixed(unit ? 1 : 0)} ${units[unit]}`;
 }
 
-export function FilePreview({ projectId, filePath, onClose, onError, registerGuard, onOpenFile }: {
+export function FilePreview({ projectId, filePath, onClose, onError, registerGuard, onOpenLink }: {
   projectId: string; filePath: string; onClose: () => void; onError: (message: string) => void;
   registerGuard: (guard: (() => Promise<boolean>) | null) => void;
-  onOpenFile: (path: string) => void;
+  onOpenLink: (target: string) => void;
 }) {
   const [loaded, setLoaded] = useState<{ key: string; result: Result<Preview> } | null>(null);
   const [revision, setRevision] = useState(0);
@@ -96,11 +96,6 @@ export function FilePreview({ projectId, filePath, onClose, onError, registerGua
   useEffect(() => { window.projectGrid.editorDirty(dirty || saving, projectId, filePath); }, [dirty, saving, projectId, filePath]);
   const navigate = async (action: () => void) => { if (await guard.current()) { setEditing(false); setSaveMessage(''); action(); } };
   const beginEditing = () => { if (text === null) return; if (!editing) setDraft(text.replace(/\r\n/g, '\n')); setEditing(true); setMode('source'); setSaveMessage(''); requestAnimationFrame(() => editor.current?.focus()); };
-  const openMarkdownLink = async (target: string) => {
-    const result = await window.projectGrid.openLink(projectId, target);
-    if (!result.ok) onError(result.error);
-    else if (result.value.kind === 'file') onOpenFile(result.value.path);
-  };
 
   useEffect(() => { setImageError(false); setVideoError(false); }, [previewUrl]);
   useEffect(() => { if (textPage) setPageInput(String(textPage.index + 1)); }, [textPage?.index]);
@@ -123,7 +118,6 @@ export function FilePreview({ projectId, filePath, onClose, onError, registerGua
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [projectId, filePath, key, pageIndex, revision]);
-  const openInCode = async () => { const result = await window.projectGrid.openInCode(projectId, filePath); if (!result.ok) onError(result.error); };
   const openVideo = async () => { const result = await window.projectGrid.openVideo(projectId, filePath); if (!result.ok) onError(result.error); };
   const changeZoom = (step: number) => setZoom(value => Math.max(.1, Math.min(4, (value === 'fit' ? 1 : value) + step)));
   const Icon = preview?.kind === 'image' ? ImageIcon : preview?.kind === 'video' ? FilmStrip : preview?.kind === 'html' ? Globe : FileText;
@@ -134,7 +128,7 @@ export function FilePreview({ projectId, filePath, onClose, onError, registerGua
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); event.stopPropagation(); void save(); }
       if (event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.metaKey) { event.preventDefault(); document.execCommand('insertText', false, '  '); }
     }} />;
-  const markdownBody = markdown && previewUrl ? <Suspense fallback={<div className="file-preview-message">正在渲染 Markdown…</div>}><MarkdownPreview content={editing ? draft : text || ''} baseUrl={previewUrl} onOpenLink={target => void openMarkdownLink(target)} /></Suspense> : null;
+  const markdownBody = markdown && previewUrl ? <Suspense fallback={<div className="file-preview-message">正在渲染 Markdown…</div>}><MarkdownPreview content={editing ? draft : text || ''} baseUrl={previewUrl} onOpenLink={onOpenLink} /></Suspense> : null;
   let body;
   if (editing && text !== null) body = markdown ? <div className="markdown-editor-surface"><div className="markdown-source-pane" hidden={mode === 'preview'}>{editorField}</div>{mode === 'preview' && markdownBody}</div> : editorField;
   else if (loading && !preview) body = <div className="file-preview-message"><SpinnerGap size={22} className="loading-spinner" />正在读取文件…</div>;
@@ -153,7 +147,7 @@ export function FilePreview({ projectId, filePath, onClose, onError, registerGua
     ? <div className="file-preview-message" role="status"><FilmStrip size={28} /><p>当前视频编码无法在应用中播放，或文件尚未生成完整。</p><button className="button secondary small" onClick={openVideo}>用系统播放器打开</button><button className="text-button" onClick={() => setRevision(r => r + 1)}>重新加载视频</button></div>
     : <div className="video-viewport"><video key={preview.url} className="preview-video" src={preview.url} controls preload="metadata" playsInline aria-label="视频预览" onError={() => setVideoError(true)} /></div>;
   else if (text !== null) body = <TextContent key={`${key}:${revision}`} content={text} />;
-  else body = <div className="file-preview-message"><FileText size={28} /><p>{preview?.kind === 'unsupported' ? preview.reason : '无法预览此文件。'}</p><button className="button secondary small" onClick={openInCode}><ArrowSquareOut size={14} />在 VS Code 打开</button></div>;
+  else body = <div className="file-preview-message"><FileText size={28} /><p>{preview?.kind === 'unsupported' ? preview.reason : '无法预览此文件。'}</p></div>;
 
   return <section className="file-preview" aria-label="文件预览" onKeyDown={event => { if (editing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); event.stopPropagation(); void save(); } }}>
     <div className="file-tabs"><button className="terminal-tab" onClick={onClose}><Terminal size={15} />返回终端</button><div className="selected-file-tab"><Icon size={15} /><span>{filePath.split('/').at(-1)}{dirty ? ' •' : ''}</span><button className="icon-button" title="关闭文件预览" aria-label="关闭文件预览" onClick={onClose}><X size={14} /></button></div><span className="preview-readonly">{markdown && mode === 'preview' ? dirty ? '预览 · 未保存' : 'Markdown 预览' : editing ? dirty ? '未保存' : '编辑中' : preview?.kind === 'image' ? '图片预览' : preview?.kind === 'video' ? '视频预览' : preview?.kind === 'html' ? '网页预览' : '文本预览'}</span></div>
@@ -170,7 +164,6 @@ export function FilePreview({ projectId, filePath, onClose, onError, registerGua
       {text !== null && (!editing ? !markdown && preview?.kind !== 'html' && <button className="preview-option editor-action" disabled={loading} onClick={beginEditing}><PencilSimple size={15} />{textPage && textPage.count > 1 ? '编辑当前段' : '编辑'}</button> : <><button className="preview-option editor-action" disabled={!dirty || saving} onClick={() => void save()} title="保存文件 · Ctrl+S"><FloppyDisk size={15} />{saving ? '保存中…' : '保存'}</button>{!markdown && <button className="preview-option" disabled={saving} onClick={() => void navigate(() => {})}>结束编辑</button>}</>)}
       <button className="icon-button" disabled={saving} title="刷新文件" aria-label="刷新文件" onClick={() => void navigate(() => setRevision(r => r + 1))}><ArrowClockwise size={16} /></button>
       {text !== null && <button className="icon-button" title={textPage && textPage.count > 1 ? '复制当前页内容' : '复制文件内容'} aria-label={textPage && textPage.count > 1 ? '复制当前页内容' : '复制文件内容'} onClick={async () => { const result = await window.projectGrid.copy(editing ? draft : text); if (!result.ok) onError(result.error); }}><Copy size={16} /></button>}
-      <button className="icon-button" title="在 VS Code 打开文件" aria-label="在 VS Code 打开文件" onClick={openInCode}><ArrowSquareOut size={16} /></button>
     </div></div>
     {body}
     {saveMessage && <div className={`editor-message ${saveMessage === '已保存' ? '' : 'editor-error'}`} role="status">{saveMessage}</div>}

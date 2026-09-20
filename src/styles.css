@@ -59,9 +59,8 @@ kbd { font: 9px 'Segoe UI', sans-serif; border: 1px solid #303743; border-radius
 .project-panel:has(.panel-menu) { z-index: 20; }
 .panel-header { height: 44px; flex: 0 0 44px; border-bottom: 1px solid #252b34; display: flex; align-items: center; padding: 0 8px 0 12px; gap: 8px; background: #191e25; border-radius: 6px 6px 0 0; }
 .has-unread .panel-header { background: #2a1e25; border-color: #442831; }
-.is-done .panel-header { background: #182720; border-color: #2b4033; }
 .panel-index { font: 11px 'Consolas', monospace; color: #697789; }
-.has-unread .panel-index { color: #b4717c; }.is-done .panel-index { color: #649879; }
+.has-unread .panel-index { color: #b4717c; }
 .panel-name { display: flex; align-items: center; gap: 9px; background: transparent; border: 0; padding: 0; min-width: 0; flex: 1; font-size: 14px; font-weight: 600; text-align: left; color: #c7d1df; }
 .panel-name > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .panel-name small { display: flex; gap: 3px; align-items: center; color: #677487; font-size: 11px; font-weight: 400; max-width: 90px; overflow: hidden; white-space: nowrap; }
@@ -124,7 +123,6 @@ kbd { font: 9px 'Segoe UI', sans-serif; border: 1px solid #303743; border-radius
 .focus-mode .project-grid { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); }
 .focus-mode .terminal-host { inset: 16px 12px 10px 18px; }
 .focus-mode .project-panel { border-color: #3c495a; }
-.focus-mode .project-panel.is-done { border-color: #4e956f; }
 .focus-mode .panel-header { padding: 0 13px 0 17px; }
 .focus-mode .panel-footer { padding: 0 17px; }
 .settings-dialog { padding: 0; border: 1px solid #3c4655; border-radius: 12px; color: #ced8e6; background: #1b2029; width: 510px; max-width: calc(100vw - 40px); box-shadow: 0 24px 80px #0008; }

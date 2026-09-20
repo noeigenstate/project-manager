@@ -37,7 +37,7 @@ export function ProjectTerminals({ project, focused, fontSize, activeId, setActi
         </header>}
         <div className="terminal-split-body">
           {terminal.sessionId ? <TerminalPane id={terminal.id} sessionId={terminal.sessionId} fontSize={fontSize} focused={focused && selected === terminal.id} onError={onError} onOpenLink={(_id, target) => onOpenLink(project.id, target)} remote={project.kind === 'ssh'} />
-            : <div className="terminal-empty"><TerminalIcon size={28} weight="light" /><p>{project.done ? '这个项目已标记为开发完成' : '项目已就位'}</p><span>启动终端，在这里开始开发</span><button className="button secondary small" onClick={() => void onAction(window.projectGrid.startTerminal(terminal.id))}><Play size={13} weight="fill" />启动终端</button></div>}
+            : <div className="terminal-empty"><TerminalIcon size={28} weight="light" /><p>项目已就位</p><span>启动终端，在这里开始开发</span><button className="button secondary small" onClick={() => void onAction(window.projectGrid.startTerminal(terminal.id))}><Play size={13} weight="fill" />启动终端</button></div>}
         </div>
         {multiple && <footer className="terminal-split-footer"><span>{terminal.error || (project.kind === 'ssh' ? 'SSH' : 'PowerShell')}</span><div>
           <button className="icon-button voice-button" title="语音输入" aria-label={`语音输入 ${name}`} onClick={() => onVoice({ ...project, id: terminal.id, name, sessionId: terminal.sessionId })}><Microphone size={13} /></button>

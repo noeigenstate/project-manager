@@ -21,7 +21,7 @@ await fs.mkdir(path.join(codexHome, 'sessions'), { recursive: true });
 await fs.mkdir(bin);
 await exec(path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'), ['/nologo', '/target:exe', '/reference:System.Web.Extensions.dll', `/out:${path.join(bin, 'codex.exe')}`, path.join(root, 'tests/fixtures/restore-codex.cs')], { windowsHide: true });
 const projects = [];
-for (const [index, name] of ['中断的项目', '已结束这一轮', '主动关闭终端', '开发完成'].entries()) {
+for (const [index, name] of ['中断的项目', '已结束这一轮', '主动关闭终端', '旧版完成项目'].entries()) {
   const directory = path.join(output, name);
   await fs.mkdir(directory);
   const id = randomUUID(); const sessionId = randomUUID();
@@ -96,7 +96,8 @@ async function restoreClipboard() {
 }
 try {
   await launch(); await verifyResume();
-  console.log('PASS: interrupted session resumes with 继续; completed turn resumes without a prompt; closed and done projects stay stopped');
+  assert.ok((await page.evaluate(() => window.projectGrid.getState())).value.projects.every(project => !('done' in project)));
+  console.log('PASS: interrupted session resumes with 继续; completed round resumes without a prompt; closed and legacy-finished projects stay stopped after migration');
   await application.close(); application = null;
   for (const project of projects.slice(0, 2)) await fs.unlink(path.join(project.path, 'resume-receipt.json'));
   await launch(); await verifyResume();

@@ -1,6 +1,7 @@
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+export type ProjectLocation = { kind: 'external' } | { kind: 'file' | 'directory'; path: string };
 export type Project = {
-  id: string; name: string; path: string; branch: string; unread: number; done: boolean;
+  id: string; name: string; path: string; branch: string; unread: number;
   kind: 'local' | 'ssh'; ssh: { host: string; configFile: string | null } | null;
   lastCompletedAt: number | null; lastActivityAt: number | null; awaitingCompletion: boolean;
   sessionId: string | null; status: 'stopped' | 'starting' | 'shell' | 'codex' | 'exited';
@@ -42,16 +43,14 @@ export type Bridge = {
   swapProjects(source: string, target: string): Promise<Result<void>>;
   reorderProjects(ids: string[]): Promise<Result<void>>;
   acknowledge(id: string): Promise<Result<void>>;
-  markDone(id: string, done: boolean): Promise<Result<void>>;
   acknowledgeAll(): Promise<Result<void>>;
   settings(patch: Partial<Settings>): Promise<Result<void>>;
-  openInCode(id: string, relativePath?: string): Promise<Result<void>>;
   listDirectory(id: string, relativePath?: string, offset?: number): Promise<Result<DirectoryListing>>;
   createEntry(id: string, directory: string, name: string, kind: 'file' | 'directory'): Promise<Result<{ path: string; kind: string }>>;
   renameEntry(id: string, relative: string, name: string): Promise<Result<{ path: string }>>;
   deleteEntries(id: string, paths: string[]): Promise<Result<{ deleted: string[] }>>;
-  copyEntries(id: string, paths: string[]): Promise<Result<{ count: number }>>;
-  copyPaths(id: string, paths: string[], format: 'absolute' | 'relative'): Promise<Result<{ count: number }>>;
+  copyEntries(id: string, paths: string[]): Promise<Result<{ count: number; superseded?: boolean }>>;
+  copyPaths(id: string, paths: string[], format: 'absolute' | 'relative'): Promise<Result<{ count: number; superseded?: boolean }>>;
   pasteEntries(id: string, directory: string): Promise<Result<{ pasted: string[] }>>;
   fileTreeFocus(id: string, focused: boolean): void;
   getFileProgress(): Promise<Result<FileProgress>>;
@@ -71,9 +70,9 @@ export type Bridge = {
   onEditorClose(callback: (id: string) => void): () => void;
   editorCloseResult(id: string, accepted: boolean): void;
   closePreview(id: string): Promise<Result<void>>;
-  openLink(id: string, target: string): Promise<Result<{ kind: 'external' } | { kind: 'file'; path: string }>>;
+  openLink(id: string, target: string): Promise<Result<ProjectLocation>>;
   openVideo(id: string, relativePath: string): Promise<Result<void>>;
-  revealProject(id: string): Promise<Result<void>>;
+  revealProject(id: string): Promise<Result<ProjectLocation>>;
   startTerminal(id: string): Promise<Result<void>>;
   addTerminal(id: string): Promise<Result<string>>;
   closeTerminal(id: string): Promise<Result<boolean>>;

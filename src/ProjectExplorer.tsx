@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import {
-  ArrowLeft, ArrowSquareOut, ArrowsInLineVertical, ArrowClockwise, BracketsCurly,
-  CaretDown, CaretRight, CheckCircle, File, FileCode, FileText, Folder, FolderOpen,
+  ArrowLeft, ArrowsInLineVertical, ArrowClockwise, BracketsCurly,
+  CaretDown, CaretRight, File, FileCode, FileText, Folder, FolderOpen,
   GearSix, LinkSimple, SidebarSimple, SpinnerGap, Image as ImageIcon, FilmStrip, FilePlus, FolderPlus, Clipboard,
 } from '@phosphor-icons/react';
 import type { DirectoryListing, FileEntry, Project } from './types';
@@ -117,10 +117,10 @@ function TreeNode(props: NodeProps) {
   </div>;
 }
 
-export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFile, onCollapse, onExpandedChange, onSelectFile, onReturn, onDone, onSettings, onOpenCode, onFilesRemoved, onPathRenamed }: {
+export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFile, onCollapse, onExpandedChange, onSelectFile, onReturn, onSettings, onFilesRemoved, onPathRenamed }: {
   project: Project; collapsed: boolean; expandedPaths: string[]; selectedFile: string | null;
   onCollapse: () => void; onExpandedChange: (paths: string[]) => void; onSelectFile: (path: string) => void;
-  onReturn: () => void; onDone: () => void; onSettings: () => void; onOpenCode: () => void;
+  onReturn: () => void; onSettings: () => void;
   onFilesRemoved: (paths: string[]) => void; onPathRenamed: (oldPath: string, newPath: string) => void;
 }) {
   const [revision, setRevision] = useState(0);
@@ -151,8 +151,6 @@ export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFil
       {files.status}
     </div>
     <div className="explorer-actions">
-      <button className={`explorer-action finish-action ${project.done ? 'project-finished' : ''}`} onClick={onDone} title={project.done ? '继续开发' : '标记开发完成'} aria-label={project.done ? '继续开发' : '标记开发完成'}><CheckCircle size={18} /><span>{project.done ? '继续开发' : '标记开发完成'}</span></button>
-      <button className="explorer-action" onClick={onOpenCode} title="在 VS Code 打开" aria-label="在 VS Code 打开"><ArrowSquareOut size={17} /><span>在 VS Code 打开</span></button>
       <button className="explorer-action" onClick={onSettings} title="工作台设置" aria-label="工作台设置"><GearSix size={18} /><span>设置</span></button>
     </div>
     {files.overlays}

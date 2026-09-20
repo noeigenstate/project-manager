@@ -60,6 +60,9 @@ try {
   await waitFor(async () => (await state()).unread === 1, 'parent completes');
   assert.equal(await notices(), 1);
   await page.evaluate(id => window.projectGrid.acknowledge(id), project.id);
+  await waitFor(async () => page.locator('.project-panel').evaluate(node => node.classList.contains('round-complete')), 'viewed automatic completion is steady green');
+  assert.equal(await page.locator('.status-badge').innerText(), '本轮已完成');
+  assert.equal(await page.locator('.project-panel').evaluate(node => node.getAnimations({ subtree: true }).some(animation => animation.animationName === 'signal-breathe')), false);
   await input('draft'); await notify(child, 'new-id'); await notify(thread, 'first');
   assert.equal(await notices(), 1); assert.equal((await state()).codexActivity, 'complete');
   await input('\x15'); await input('second instruction\r');

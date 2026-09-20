@@ -118,6 +118,15 @@ jobs:
       - name: Verify synchronized lights, readable themes and quiet completed cards
         run: npm run test:visual -- --packaged
 
+      - name: Verify internal navigation and removed external editor and manual completion actions
+        run: npm run test:navigation -- --packaged
+
+      - name: Verify image paths use text-only clipboard data and latest-copy ordering
+        run: npm run test:clipboard -- --packaged
+
+      - name: Verify liquid glass under terminal load and reduced transparency
+        run: npm run test:material -- --packaged
+
       - name: Create checksum and build notes
         run: |
           $version = '${{ steps.version.outputs.version }}'
@@ -177,6 +186,10 @@ jobs:
             .test-output/themes-markdown-*/*.png
             .test-output/visual-*/*.png
             .test-output/visual-*/results.json
+            .test-output/navigation-*/*.png
+            .test-output/clipboard-*/*.png
+            .test-output/material-*/*.png
+            .test-output/material-*/results.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
@@ -223,7 +236,12 @@ jobs:
           Install Codex CLI on the computer or Linux SSH host where your project runs.
 
           - Multiple project terminals with completion alerts.
-          - Crisp blue-purple-pink-amber vector edges and four corner highlights breathe in sync with the status dot every 2 seconds. Completion breathes three times, then stays quiet; manual completion stays steady green.
+          - Clear liquid-glass title/status bars, sidebar and terminal shells reveal the background with thin optical rims and real SVG backdrop refraction. Text and ANSI colors remain separate from the lens.
+          - All themes include an opaque Reduced Transparency fallback. Packaged tests compare refraction pixels and exercise 6/16 cards with six streaming terminals.
+          - All VS Code launch actions and manual project-completion controls have been removed. SSH folder menus, terminal directory links and Markdown directory links open the built-in explorer and respect unsaved edits.
+          - Previously manually finished projects remain stopped after upgrading, including every split terminal; start them manually when needed. Session identity and history are retained.
+          - Image path copying waits for the native clipboard to finish and produces text only. A slower earlier file copy cannot overwrite a newer copied path.
+          - Crisp blue-purple-pink-amber vector edges and four corner highlights breathe in sync with the status dot every 2 seconds. Completion breathes three times, then stays quiet; viewed automatic round completion stays steady green.
           - Larger project labels, clearer status text and darker glass reading surfaces preserve terminal colors and custom font sizes across all three themes.
           - Smaller Windows x64 packages exclude source maps, native build sources, duplicate/other-platform PTY binaries and Python caches; required local/SSH runtimes are verified before release.
           - Choose Forest Light, Mountain Blue or Wild Red in Settings; themes apply immediately and persist without restarting terminals.
@@ -233,7 +251,7 @@ jobs:
           - Explorer menus copy local or SSH absolute paths and project-relative paths; Ctrl+Shift+C copies absolute paths.
           - Parent-session lifecycle records determine running, completed and interrupted states; child-agent and stale-turn notifications cannot finish the current task.
           - Incremental bounded status reads, single-flight directory refresh, fewer workspace broadcasts, and removed obsolete sidebar/drag-preview styles.
-          - Fullscreen project view, collapsible file explorer, and frosted glass interface.
+          - Fullscreen project view, collapsible file explorer, and clear liquid-glass interface.
           - Click the top header or expand button to zoom in gradually; terminal input, output and footer clicks stay in the small card.
           - Smooth zoom is enabled by default even when Windows reduces system animations; Settings offers Smooth, Follow system and Off. Installer tests use the real OS preference.
           - Installed, development and test builds use separate Windows identities; branded multi-size icons and repaired Start menu shortcuts prevent Electron entries from replacing Project Grid in Windows search.

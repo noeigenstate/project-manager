@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, Notification, clipboard, shell, protocol, net: electronNet } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const { spawn, execFile } = require('node:child_process');
+const { execFile } = require('node:child_process');
 const { execFileSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const { randomUUID } = require('node:crypto');
@@ -22,6 +22,7 @@ const { recentSession, resumeCommand } = require('./session-restore.cjs');
 const { CodexActivityReader, monitorActivity } = require('./codex-activity.cjs');
 const { TerminalTitleTracker } = require('./terminal-title.cjs');
 const { FileOperations } = require('./file-operations.cjs');
+const { ClipboardWrites } = require('./clipboard-writes.cjs');
 const { VoiceManager } = require('./voice.cjs');
 const { windowsAppId, materializeIcon, repairShortcuts, refreshSearchIcons } = require('./windows-integration.cjs');
 
@@ -55,6 +56,7 @@ let voiceManager;
 let attentionTimer;
 let editorDirty = false, editorCloseRequest = null, editorFile = null;
 const fileSaves = new Set();
+const clipboardWrites = new ClipboardWrites();
 const powershellPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 
 function send(channel, data) { if (window && !window.isDestroyed()) window.webContents.send(channel, data); }
@@ -78,7 +80,7 @@ function publicState() {
       const activity = activeCodex.some(item => item.codexActivity === 'working') ? 'working' : activeCodex.some(item => item.codexActivity === 'interrupted') ? 'interrupted' : activeCodex.length && activeCodex.every(item => item.codexActivity === 'complete') ? 'complete' : 'unknown';
       const status = activeCodex.length ? 'codex' : terminals.some(item => item.status === 'shell') ? 'shell' : terminals.some(item => item.status === 'starting') ? 'starting' : first.status;
       return {
-        id: p.id, name: p.name, path: p.path, unread: p.unread, done: p.done, lastCompletedAt: p.lastCompletedAt, awaitingCompletion: p.completionArmed,
+        id: p.id, name: p.name, path: p.path, unread: p.unread, lastCompletedAt: p.lastCompletedAt, awaitingCompletion: p.completionArmed,
         kind: p.kind || 'local', ssh: p.ssh || null,
         branch: branches.get(p.id) || '',
         terminals, sessionId: first.sessionId, status,
@@ -96,7 +98,7 @@ function publicState() {
 
 function terminalIds(project) {
   const extra = (project.terminals || []).map(item => item.id);
-  return !sessions.has(project.id) && project.restore?.terminal === false && extra.length ? extra : [project.id, ...extra];
+  return !sessions.has(project.id) && project.primaryTerminalClosed === true && extra.length ? extra : [project.id, ...extra];
 }
 
 function disposeProjectTerminals(project) {
@@ -188,7 +190,7 @@ function onEvent(event) {
         if (snapshot.state === 'working') store.expectCompletion(project.id);
         else if (snapshot.state === 'complete' && snapshot.turnId) {
           s.lastCompletedAt = snapshot.updatedAt;
-          if (!project.done && !project.seenEvents.includes(`${snapshot.threadId}:${snapshot.turnId}`)) store.expectCompletion(project.id);
+          if (!project.seenEvents.includes(`${snapshot.threadId}:${snapshot.turnId}`)) store.expectCompletion(project.id);
           if (store.complete(project.id, `${snapshot.threadId}:${snapshot.turnId}`, snapshot.updatedAt)) notifyCompletion(project);
         } else if (snapshot.state === 'interrupted') store.expectCompletion(project.id, false);
         broadcast();
@@ -459,7 +461,6 @@ function registerIpc() {
   handle('workspace:acknowledge', id => { findProject(id); store.acknowledge(id); broadcast(); });
   handle('workspace:swap', (source, target) => { findProject(source); findProject(target); store.swapProjects(source, target); broadcast(); });
   handle('workspace:reorder', ids => { store.reorderProjects(ids); broadcast(); });
-  handle('workspace:done', (id, done) => { findProject(id); store.markDone(id, done); broadcast(); });
   handle('workspace:acknowledge-all', () => { for (const p of store.projects) p.unread = 0; store.save(); broadcast(); });
   handle('workspace:settings', patch => {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('无效的设置。');
@@ -479,10 +480,12 @@ function registerIpc() {
   handle('project:copy-entries', (id, paths) => fileOperations.copy(findProject(id), paths));
   handle('project:copy-paths', async (id, paths, format) => {
     const project = findProject(id);
+    const revision = clipboardWrites.reserve();
     const remote = project.kind === 'ssh' && format === 'absolute' ? remoteFor(id) : null;
     if (remote) await remote.ready;
     const value = projectPaths(project, paths, format, remote?.info.root);
-    clipboard.writeText(value); return { count: paths.length };
+    if (!await clipboardWrites.commit(revision, () => clipboard.writeText(value))) return { count: 0, superseded: true };
+    return { count: paths.length };
   });
   handle('project:paste-entries', (id, directory) => fileOperations.paste(findProject(id), directory));
   handle('files:progress', () => fileProgress);
@@ -531,7 +534,7 @@ function registerIpc() {
         if (relative === '..' || relative.startsWith('../')) throw new Error('该链接指向远程项目目录之外。');
         try {
           const stat = await remote.request('stat', { path: relative });
-          if (stat.directory) { await openInCode(id, relative); return { kind: 'external' }; }
+          if (stat.directory) return { kind: 'directory', path: stat.realPath === '.' ? '' : stat.realPath };
           return { kind: 'file', path: relative };
         } catch (error) { if (candidate === value.replace(/(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)$/, '')) throw error; }
       }
@@ -547,26 +550,12 @@ function registerIpc() {
     if (!VIDEO_TYPES[path.extname(resolved).toLowerCase()] || !(await fs.promises.stat(resolved)).isFile()) throw new Error('请选择一个视频文件。');
     const error = await shell.openPath(resolved); if (error) throw new Error(error);
   });
-  handle('project:reveal', async id => { if (findProject(id).kind === 'ssh') return openInCode(id); const error = await shell.openPath(findProject(id).path); if (error) throw new Error(error); });
-  const openInCode = async (id, relativePath) => {
+  handle('project:reveal', async id => {
     const project = findProject(id);
-    let target;
-    if (project.kind === 'ssh') {
-      const remoteRoot = sessions.get(id)?.terminal.info?.root || project.path;
-      if (!remoteRoot.startsWith('/')) throw new Error('请先连接 SSH，解析远程主目录。');
-      target = path.posix.resolve(remoteRoot, relativePath || '.');
-      const relative = path.posix.relative(remoteRoot, target);
-      if (relative === '..' || relative.startsWith('../')) throw new Error('文件不在项目目录内。');
-    } else target = relativePath ? await resolveProjectPath(project, relativePath) : project.path;
-    const found = await new Promise(resolve => execFile('where.exe', ['code'], { windowsHide: true, timeout: 3000 }, (err, output) => resolve(err ? [] : output.trim().split(/\r?\n/))));
-    const candidates = found.map(filename => path.join(path.dirname(path.dirname(filename)), 'Code.exe'));
-    candidates.push(path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Microsoft VS Code', 'Code.exe'));
-    const executable = candidates.find(p => fs.existsSync(p));
-    if (!executable) throw new Error('没有找到 VS Code。请将 VS Code 的 code 命令加入 PATH。');
-    const child = spawn(executable, project.kind === 'ssh' ? ['--remote', `ssh-remote+${project.ssh.host}`, target] : [target], { detached: true, stdio: 'ignore', windowsHide: false });
-    child.on('error', report); child.unref();
-  };
-  handle('project:code', openInCode);
+    if (project.kind === 'ssh') return { kind: 'directory', path: '' };
+    const error = await shell.openPath(project.path); if (error) throw new Error(error);
+    return { kind: 'external' };
+  });
   handle('terminal:start', startTerminal);
   handle('terminal:add', id => {
     const project = findProject(id);
@@ -597,7 +586,6 @@ function registerIpc() {
     if (!s?.ready || s.inputDirty) throw new Error('请先结束当前命令，并在空白终端提示符下启动 Codex。');
     if (s.codexActive) return;
     if (!s.codexAvailable) throw new Error('终端中未找到 Codex CLI，请安装后重启终端。');
-    store.markDone(findProject(id).id, false);
     s.codexActive = true; s.status = 'codex';
     s.ready = false; s.terminal.write('codex\r'); broadcast();
   });
@@ -623,7 +611,10 @@ function registerIpc() {
     const s = sessions.get(id);
     if (s && s.status !== 'exited') s.terminal.resize(cols, rows);
   });
-  handle('clipboard:copy', text => { if (typeof text !== 'string') throw new Error('无效的剪贴板内容。'); return clipboard.writeText(text); });
+  handle('clipboard:copy', async text => {
+    if (typeof text !== 'string') throw new Error('无效的剪贴板内容。');
+    await clipboardWrites.commit(clipboardWrites.reserve(), () => clipboard.writeText(text));
+  });
   handle('clipboard:read', () => clipboard.readText());
   handle('terminal:paste', (id, text, sessionId) => {
     const session = sessions.get(id);
@@ -665,7 +656,7 @@ else {
     }
     store = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace.json'));
     voiceManager = new VoiceManager({ directory: path.join(app.getPath('userData'), 'voice'), fetcher: (url, options) => electronNet.fetch(url, options), changed: state => send('voice:state', state) });
-    fileOperations = new FileOperations({ integrationDir, cacheRoot: path.join(app.getPath('userData'), 'file-clipboard'), remote: remoteFor,
+    fileOperations = new FileOperations({ integrationDir, cacheRoot: path.join(app.getPath('userData'), 'file-clipboard'), remote: remoteFor, clipboardWrites,
       trash: filename => shell.trashItem(filename),
       confirmDelete: async (project, paths) => (await dialog.showMessageBox(window, { type: 'question', title: '删除文件', message: `删除 ${paths.length} 个文件或文件夹？`,
         detail: `${paths.slice(0, 5).join('\n')}${paths.length > 5 ? '\n…' : ''}\n\n${project.kind === 'ssh' ? '远程文件会被永久删除。' : '本地文件会移入回收站。'}`,
@@ -767,7 +758,7 @@ else {
     updateIndicators();
     if (!process.env.PROJECT_GRID_DATA_DIR) updateManager.start();
     if (store.settings.restoreSessions && (!process.env.PROJECT_GRID_DATA_DIR || process.env.PROJECT_GRID_TEST_RESTORE === '1')) {
-      const terminals = store.projects.filter(project => !project.done).flatMap(project => [project, ...(project.terminals || [])].filter(record => record.restore === null || record.restore?.terminal).map(record => ({ project, record })));
+      const terminals = store.projects.flatMap(project => [project, ...(project.terminals || [])].filter(record => record.restore === null || record.restore?.terminal).map(record => ({ project, record })));
       terminals.forEach(({ project, record }, index) => {
         if (record.restore === null || record.restore.codex) restorePlans.set(record.id, { codex: record.restore?.codex === true, cwd: record.restore?.cwd });
         const timer = setTimeout(() => {

@@ -3,9 +3,9 @@ import {
   SquaresFour, FolderSimplePlus, Bell, MagnifyingGlass, ArrowsOutSimple,
   Play, Plus, Terminal as TerminalIcon, Check, DotsThree, GitBranch, X, Minus, Square,
   GearSix, CheckCircle, FolderOpen, Power, ArrowCounterClockwise,
-  ArrowSquareOut, Monitor, Info, Circle, SpeakerHigh, Globe, Microphone,
+  Monitor, Info, Circle, SpeakerHigh, Globe, Microphone,
 } from '@phosphor-icons/react';
-import type { AppUpdateState, Project, Result, Settings, SSHAuthPrompt, Workspace } from './types';
+import type { AppUpdateState, Project, ProjectLocation, Result, Settings, SSHAuthPrompt, Workspace } from './types';
 import { ProjectTerminals } from './ProjectTerminals';
 import { ProjectExplorer } from './ProjectExplorer';
 import { AddProjectDialog } from './AddProjectDialog';
@@ -13,6 +13,7 @@ import { SSHAuthDialog } from './SSHAuthDialog';
 import { useProjectReorder } from './useProjectReorder';
 import { useProjectFocusMotion } from './useProjectFocusMotion';
 import { applyTheme, themes } from './themes';
+import { LiquidGlass } from './LiquidGlass';
 const VoiceDialog = lazy(() => import('./VoiceDialog').then(module => ({ default: module.VoiceDialog })));
 const FilePreview = lazy(() => import('./FilePreview').then(module => ({ default: module.FilePreview })));
 
@@ -36,7 +37,6 @@ function relativeTime(timestamp: number | null, now: number) {
 
 function statusText(project: Project) {
   if (project.codexActive && project.codexActivity === 'working') return '正在处理';
-  if (project.done) return '开发完成';
   if (project.unread) return '等待你查看';
   if (project.error) return '需要检查';
   if (project.status === 'codex') return project.codexActivity === 'complete' ? '本轮已完成' : project.codexActivity === 'interrupted' ? '已中断' : 'Codex 会话中';
@@ -46,11 +46,16 @@ function statusText(project: Project) {
   return '尚未启动';
 }
 
-function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus, onDone, onAction, onError, onOpenLink, dragging, dropTarget, onVoice }: {
+function isRoundComplete(project: Project) {
+  return project.codexActive && project.codexActivity === 'complete' && !project.unread && !project.error;
+}
+
+function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus, onAction, onError, onOpenLink, onRevealProject, dragging, dropTarget, onVoice }: {
   project: Project; index: number; hidden: boolean; focused: boolean; fontSize: number; now: number;
-  onFocus: (id: string) => void; onDone: (project: Project) => void;
+  onFocus: (id: string) => void;
   onAction: <T>(promise: Promise<Result<T>>) => Promise<T | undefined>; onError: (message: string) => void;
   onOpenLink: (id: string, target: string) => void;
+  onRevealProject: (id: string) => void;
   dragging?: boolean; dropTarget?: boolean;
   onVoice: (project: Project) => void;
 }) {
@@ -65,11 +70,11 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   const addTerminal = async () => { const id = await onAction(api.addTerminal(project.id)); if (id) setActiveTerminalId(id); };
   const completionAge = project.lastCompletedAt === null ? Infinity : Date.now() - project.lastCompletedAt;
   const working = project.codexActive && project.codexActivity === 'working';
-  const freshCompletion = !!project.unread && !project.done && !working && completionAge >= 0 && completionAge < 9000;
-  const roundComplete = project.codexActive && project.codexActivity === 'complete' && !project.unread && !project.done && !project.error;
+  const freshCompletion = !!project.unread && !working && completionAge >= 0 && completionAge < 9000;
+  const roundComplete = isRoundComplete(project);
   // A new turn starts the edge and dot together; ordinary renders keep their clock.
   const signalKey = `${working ? 'working' : 'rest'}:${project.lastCompletedAt}`;
-  const badgeClass = `status-badge ${working ? 'blue' : project.done || roundComplete ? 'green' : project.unread ? 'red' : project.error ? 'amber' : ''}`;
+  const badgeClass = `status-badge ${working ? 'blue' : roundComplete ? 'green' : project.unread ? 'red' : project.error ? 'amber' : ''}`;
   const badge = <><span key={signalKey} className="status-dot" aria-hidden="true" /><span>{statusText(project)}</span></>;
   useEffect(() => {
     if (!menuOpen) return;
@@ -79,8 +84,8 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
   }, [menuOpen]);
   const action = (callback: () => void) => { setMenuOpen(false); callback(); };
   return <article
-    className={`project-panel ${project.unread && !project.done && !working ? 'has-unread' : ''} ${freshCompletion ? 'attention-active' : ''} ${project.done && !working ? 'is-done' : ''} ${working ? 'is-working' : ''} ${roundComplete ? 'round-complete' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''} ${dragging ? 'drag-source' : ''} ${dropTarget ? 'drop-target' : ''}`}
-    data-project-id={project.id} data-status={working ? 'working' : project.done ? 'done' : project.unread ? 'unread' : project.status}
+    className={`project-panel ${project.unread && !working ? 'has-unread' : ''} ${freshCompletion ? 'attention-active' : ''} ${working ? 'is-working' : ''} ${roundComplete ? 'round-complete' : ''} ${focused ? 'is-focused' : ''} ${project.error ? 'has-error' : ''} ${dragging ? 'drag-source' : ''} ${dropTarget ? 'drop-target' : ''}`}
+    data-project-id={project.id} data-status={working ? 'working' : project.unread ? 'unread' : project.status}
     style={{ display: hidden ? 'none' : undefined }}
   >
     <span key={signalKey} className="panel-signal" aria-hidden="true" />
@@ -93,7 +98,7 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
         {project.branch && <small><GitBranch size={11} />{project.branch}</small>}
         {project.kind === 'ssh' && <small className="ssh-project-label"><Globe size={11} />{project.ssh?.host}</small>}
       </button>
-      {!!project.unread && !focused && !project.done && !working
+      {!!project.unread && !focused && !working
         ? <button type="button" className={`${badgeClass} status-button`} title={statusText(project)} onClick={() => onFocus(project.id)} aria-label={`查看 ${project.name} 的完成结果`}>{badge}</button>
         : <span className={badgeClass} title={statusText(project)}>{badge}</span>}
       <IconButton label={`新增终端 ${project.name}`} onClick={() => void addTerminal()}><Plus size={16} /></IconButton>
@@ -102,9 +107,7 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
         <IconButton label={`${project.name} 的更多操作`} onClick={() => setMenuOpen(!menuOpen)}><DotsThree size={20} weight="bold" /></IconButton>
         {menuOpen && <div className="dropdown panel-menu" role="menu">
           <button role="menuitem" onClick={() => action(() => void addTerminal())}><Plus size={16} />新建终端并分屏</button>
-          <button role="menuitem" onClick={() => action(() => onDone(project))}><CheckCircle size={16} />{project.done ? '继续开发' : '标记开发完成'}</button>
-          <button role="menuitem" onClick={() => action(() => { onAction(api.openInCode(project.id)); })}><ArrowSquareOut size={16} />在 VS Code 打开</button>
-          <button role="menuitem" onClick={() => action(() => { onAction(api.revealProject(project.id)); })}><FolderOpen size={16} />打开项目目录</button>
+          <button role="menuitem" onClick={() => action(() => onRevealProject(project.id))}><FolderOpen size={16} />打开项目目录</button>
           <button role="menuitem" onClick={() => action(() => { onAction(api.restartTerminal(currentTerminal.id)); })}><ArrowCounterClockwise size={16} />{project.kind === 'ssh' ? '重新连接 SSH' : '重启当前终端'}</button>
           <div className="menu-divider" />
           <button role="menuitem" className="danger-text" onClick={() => action(() => { onAction(api.removeProject(project.id)); })}><X size={16} />移除项目</button>
@@ -115,15 +118,15 @@ function ProjectPanel({ project, index, hidden, focused, fontSize, now, onFocus,
     {project.error && <div className="panel-error"><Info size={13} /><span>{project.error}</span></div>}
     <footer className="panel-footer">
       <span className="panel-meta" title={project.path}>
-        {project.done ? <CheckCircle size={12} /> : <TerminalIcon size={12} />}
-        {project.done ? '已完成' : project.kind === 'ssh' ? `SSH · ${project.ssh?.host}` : 'PowerShell'}
+        <TerminalIcon size={12} />
+        {project.kind === 'ssh' ? `SSH · ${project.ssh?.host}` : 'PowerShell'}
         <span className="meta-separator">/</span>
         <span>{working ? '任务进行中' : project.lastCompletedAt ? `${relativeTime(project.lastCompletedAt, now)}完成一轮` : stopped ? project.kind === 'ssh' ? '远程项目' : '本地项目' : '独立终端'}</span>
       </span>
       <div className="panel-footer-actions">
         {!multiple && <IconButton label={`语音输入 ${project.name}`} className="voice-button" onClick={() => onVoice({ ...project, id: first.id, sessionId: first.sessionId })}><Microphone size={14} /></IconButton>}
         {multiple && <span className="session-label">{project.terminals.length} 个终端</span>}
-        {project.unread > 1 && !project.done && <span className="unread-count">{project.unread} 轮未查看</span>}
+        {project.unread > 1 && <span className="unread-count">{project.unread} 轮未查看</span>}
         {!multiple && stopped && hasTerminal && <button className="text-button" onClick={() => onAction(api.startTerminal(first.id))}><Play size={12} weight="fill" />重新启动</button>}
         {!multiple && !stopped && !first.codexActive && first.status !== 'starting' && <button className="text-button" disabled={!first.shellReady} title="在空白终端提示符下启动 Codex" onClick={() => onAction(api.launchCodex(first.id))}><Play size={12} weight="fill" />启动 Codex</button>}
         {!multiple && first.codexActive && <span className="session-label"><span className="session-dot" />CODEX</span>}
@@ -171,7 +174,7 @@ function SettingsDialog({ settings, updates, onCheckUpdate, onInstallUpdate, onD
           : updates.status === 'ready' ? <button className="button primary small" onClick={onInstallUpdate}>重启并安装更新</button>
           : <button className="button secondary small" disabled={updates.status === 'checking' || updates.status === 'downloading'} onClick={onCheckUpdate}>{updates.status === 'error' ? '重试更新' : '检查更新'}</button>}</div>
       </section>}
-      <div className="settings-note"><Info size={15} /><p>红色闪烁表示一轮结束、等待查看；绿色常亮表示你已确认项目开发完成。减少动态效果的系统设置会同时关闭闪烁。</p></div>
+      <div className="settings-note"><Info size={15} /><p>粉色呼吸表示本轮结束、等待查看；绿色常亮表示已查看的本轮完成。没有新指令时不会重复提醒。减少动态效果的系统设置会关闭呼吸动画。</p></div>
       <div className="dialog-footer"><button className="text-button danger-text" onClick={quit}><Power size={15} />退出应用</button><button className="button primary" onClick={close}>完成</button></div>
     </div>
   </dialog>;
@@ -222,13 +225,23 @@ export function App() {
     return true;
   }, [perform, setFocusedId, allowNavigation]);
   const returnToGrid = useCallback(async () => { if (!await allowNavigation()) return; setFocusedId(null); setPreviewFile(null); api.focusMode(false); }, [setFocusedId, allowNavigation]);
-  const openTerminalLink = useCallback(async (id: string, target: string) => {
-    const result = await perform(api.openLink(id, target));
-    if (result?.kind === 'file') {
-      if (!await focusProject(id)) return;
+  const showProjectLocation = useCallback(async (id: string, result: ProjectLocation | undefined) => {
+    if (!result || result.kind === 'external' || !await focusProject(id)) return;
+    if (result.kind === 'file') {
       setPreviewFile({ projectId: id, path: result.path });
+    } else {
+      const parts = result.path.split('/').filter(Boolean);
+      const directories = ['', ...parts.map((_, index) => parts.slice(0, index + 1).join('/'))];
+      setExpandedByProject(value => ({ ...value, [id]: [...new Set([...(value[id] || []), ...directories])] }));
+      await perform(api.settings({ explorerCollapsed: false }));
     }
   }, [perform, focusProject]);
+  const openTerminalLink = useCallback(async (id: string, target: string) => {
+    await showProjectLocation(id, await perform(api.openLink(id, target)));
+  }, [perform, showProjectLocation]);
+  const revealProject = useCallback(async (id: string) => {
+    await showProjectLocation(id, await perform(api.revealProject(id)));
+  }, [perform, showProjectLocation]);
 
   useEffect(() => {
     if (!api) return;
@@ -262,21 +275,16 @@ export function App() {
   const { projects, settings } = workspace;
   const projectRecords = new Map(projects.map(project => [project.id, project]));
   const orderedProjects = reorder.order ? reorder.order.flatMap(id => projectRecords.get(id) || []) : projects;
-  const unread = projects.filter(p => p.unread > 0 && !p.done).length;
-  const done = projects.filter(p => p.done).length;
+  const unread = projects.filter(p => p.unread > 0).length;
+  const completed = projects.filter(isRoundComplete).length;
   const visible = projects.filter(p => !query || `${p.name} ${p.path} ${p.ssh?.host || ''}`.toLowerCase().includes(query.toLowerCase()));
   const visibleIds = new Set(visible.map(p => p.id));
   const columns = Math.min(4, Math.max(1, Math.ceil(Math.sqrt(Math.max(visible.length, 1)))));
   const rows = Math.max(1, Math.ceil(visible.length / columns));
   const focus = projects.find(p => p.id === focusedId);
-  const markDone = async (project: Project) => {
-    if (!await allowNavigation()) return;
-    await perform(api.markDone(project.id, !project.done));
-    if (focusedId && !project.done) returnToGrid();
-  };
   const setPreference = (patch: Partial<Settings>) => { perform(api.settings(patch)); };
 
-  return <div ref={focusMotionRoot} className={`app-shell ${focusedId ? 'focus-mode' : ''}`}>
+  return <div ref={focusMotionRoot} className={`app-shell ${focusedId ? 'focus-mode' : ''}`} style={{ '--liquid-backdrop': 'url("#project-grid-refraction") blur(1.5px) saturate(135%)' } as CSSProperties}>
     <div className="titlebar">
       <div className="titlebar-brand"><span className="brand-mark"><i /><i /><i /><i /></span><span>Project Grid</span><span className="titlebar-divider" /> <span className="titlebar-subtitle">项目矩阵</span></div>
       <div className="titlebar-space" />
@@ -294,29 +302,29 @@ export function App() {
         expandedPaths={expandedByProject[focus.id] ?? ['']} selectedFile={previewFile?.projectId === focus.id ? previewFile.path : null}
         onCollapse={() => setPreference({ explorerCollapsed: !settings.explorerCollapsed })}
         onExpandedChange={paths => setExpandedByProject(value => ({ ...value, [focus.id]: paths }))}
-        onSelectFile={async path => { if (previewFile?.projectId === focus.id && previewFile.path === path) return; if (await allowNavigation()) setPreviewFile({ projectId: focus.id, path }); }} onReturn={returnToGrid} onDone={() => markDone(focus)}
-        onSettings={() => setSettingsOpen(true)} onOpenCode={() => perform(api.openInCode(focus.id))} />}
+        onSelectFile={async path => { if (previewFile?.projectId === focus.id && previewFile.path === path) return; if (await allowNavigation()) setPreviewFile({ projectId: focus.id, path }); }} onReturn={returnToGrid}
+        onSettings={() => setSettingsOpen(true)} />}
       <main className="main-workspace">
         {workspace.warning && <div className="workspace-warning"><Info size={15} />{workspace.warning}</div>}
-        {focusedId && previewFile?.projectId === focusedId && <Suspense fallback={null}><FilePreview key={`${focusedId}:${previewFile.path}`} projectId={focusedId} filePath={previewFile.path} onClose={async () => { if (await allowNavigation()) setPreviewFile(null); }} onOpenFile={async path => { if (await allowNavigation()) setPreviewFile({ projectId: focusedId, path }); }} onError={reportError} registerGuard={registerEditorGuard} /></Suspense>}
+        {focusedId && previewFile?.projectId === focusedId && <Suspense fallback={null}><FilePreview key={`${focusedId}:${previewFile.path}`} projectId={focusedId} filePath={previewFile.path} onClose={async () => { if (await allowNavigation()) setPreviewFile(null); }} onOpenLink={target => openTerminalLink(focusedId, target)} onError={reportError} registerGuard={registerEditorGuard} /></Suspense>}
         <div className={`grid-area ${!projects.length ? 'empty-area' : ''}`} style={{ visibility: focusedId && previewFile?.projectId === focusedId ? 'hidden' : undefined }}>
           {!projects.length ? <div className="empty-workspace">
             <div className="empty-illustration" aria-hidden="true"><div className="illustration-tile"><span /><i /><i /><i /></div><div className="illustration-tile red-tile"><span /><i /><i /><b /></div><div className="illustration-tile green-tile"><Check size={22} /></div><div className="illustration-tile"><span /><i /><i /></div></div>
             <span className="eyebrow">你的多项目工作台</span><h2>每个项目，一个方框。</h2><p>添加项目目录，在独立终端里运行 Codex。<br />红框亮起时，点击全屏查看，再继续下一轮。</p>
             <button className="button primary" onClick={() => setAddOpen(true)}><FolderSimplePlus size={18} />添加第一个项目</button>
-            <div className="empty-hints"><span><Circle weight="fill" size={7} />红色闪烁 · 等待查看</span><span><CheckCircle weight="fill" size={12} />绿色常亮 · 开发完成</span></div>
+            <div className="empty-hints"><span><Circle weight="fill" size={7} />粉色呼吸 · 等待查看</span><span><CheckCircle weight="fill" size={12} />绿色常亮 · 本轮完成</span></div>
           </div> : <>
             {!focusedId && !visible.length && <div className="no-results"><MagnifyingGlass size={30} weight="light" /><h2>没有找到匹配项目</h2><p>试试其他项目名称或目录。</p><button className="button secondary small" onClick={() => setQuery('')}>重置搜索</button></div>}
             <div className={`project-grid ${reorder.drag ? 'is-reordering' : ''}`} onPointerDown={reorder.onPointerDown} onClickCapture={reorder.onClickCapture} style={{ '--columns': columns, '--rows': rows, display: !focusedId && !visible.length ? 'none' : undefined } as CSSProperties}>
               {orderedProjects.map((project, index) => <div key={project.id} className={`project-slot ${reorder.drag?.id === project.id ? 'drag-placeholder' : ''}`} data-project-slot={project.id} style={{ display: focusedId ? focusedId !== project.id ? 'none' : undefined : !visibleIds.has(project.id) ? 'none' : undefined }}><ProjectPanel project={project} index={index}
                 hidden={focusedId ? focusedId !== project.id : !visibleIds.has(project.id)} focused={focusedId === project.id && !previewFile}
-                fontSize={settings.fontSize} now={now} onFocus={focusProject} onDone={markDone} onAction={perform} onError={reportError} onOpenLink={openTerminalLink}
+                fontSize={settings.fontSize} now={now} onFocus={focusProject} onAction={perform} onError={reportError} onOpenLink={openTerminalLink} onRevealProject={revealProject}
                 dragging={reorder.drag?.id === project.id} onVoice={project => { setVoiceTarget({ id: project.id, sessionId: project.sessionId, name: project.name }); setVoiceOpen(true); }} /> </div>)}
               {reorder.drag && <div className="reorder-hint" role="status">拖动项目排序 · 松开完成<span>Esc 取消</span></div>}
             </div>
           </>}
         </div>
-        <footer className="workspace-statusbar"><span><span className="connection-dot" />{projects.some(project => project.kind === 'ssh') ? '本地与 SSH 工作区' : '本地工作区'}<span className="statusbar-divider">/</span>{projects.length} 个项目</span><span>{focusedId ? <><kbd>Ctrl Shift G</kbd>返回总览</> : <><span className="legend-red" />{unread} 个待查看<span className="legend-green" />{done} 个已完成</>}</span></footer>
+        <footer className="workspace-statusbar"><span><span className="connection-dot" />{projects.some(project => project.kind === 'ssh') ? '本地与 SSH 工作区' : '本地工作区'}<span className="statusbar-divider">/</span>{projects.length} 个项目</span><span>{focusedId ? <><kbd>Ctrl Shift G</kbd>返回总览</> : <><span className="legend-red" />{unread} 个待查看<span className="legend-green" />{completed} 个本轮完成</>}</span></footer>
       </main>
     </div>
     {error && <div className="error-toast" role="alert"><Info size={18} /><span>{error}</span><IconButton label="关闭提示" onClick={() => setError(null)}><X size={16} /></IconButton></div>}
@@ -324,5 +332,6 @@ export function App() {
     {addOpen && <AddProjectDialog onClose={() => setAddOpen(false)} onAdded={() => setQuery('')} onError={reportError} />}
     {sshAuth[0] && <SSHAuthDialog key={sshAuth[0].id} request={sshAuth[0]} />}
     {voiceOpen && <Suspense fallback={null}><VoiceDialog target={voiceTarget} close={() => setVoiceOpen(false)} /></Suspense>}
+    <LiquidGlass />
   </div>;
 }

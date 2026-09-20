@@ -29,7 +29,7 @@ for (const name of names) {
   await fs.writeFile(path.join(folder, '.gitignore'), 'node_modules\n');
   await fs.writeFile(path.join(folder, 'src', 'main.ts'), 'export const message = "中文文件预览";\n');
   await fs.writeFile(path.join(folder, 'src', 'components', 'panel.tsx'), 'export const Panel = () => "hello";\n');
-  projects.push({ id: randomUUID(), name, path: folder, unread: 0, done: false, seenEvents: [], lastCompletedAt: null });
+  projects.push({ id: randomUUID(), name, path: folder, unread: 0, seenEvents: [], lastCompletedAt: null });
 }
 const previewProject = projects[0].path;
 const relativeReportFolder = 'art/protagonist_skill_trial_hy_raw_20260915';
@@ -428,7 +428,8 @@ try {
   await waitFor(async () => (await panel.boundingBox()).width > fullWidth + 100, 'collapsed sidebar frees terminal width');
   await page.screenshot({ path: path.join(output, 'collapsed-sidebar.png') });
   assert.ok(await page.getByRole('button', { name: '返回总览', exact: true }).isVisible());
-  assert.ok(await page.getByRole('button', { name: '标记开发完成', exact: true }).isVisible());
+  assert.equal(await page.getByRole('button', { name: /标记开发完成|在 VS Code 打开/ }).count(), 0);
+  assert.ok(await page.locator('.focus-sidebar').getByRole('button', { name: '工作台设置', exact: true }).isVisible());
   await page.keyboard.press('Control+b');
   await page.getByRole('treeitem', { name: 'panel.tsx', exact: true }).waitFor();
   await page.getByRole('button', { name: '折叠所有文件夹', exact: true }).click();
@@ -453,11 +454,11 @@ try {
   console.log('PASS: red tile opens native fullscreen, marks viewed, returns without restarting terminal, and next turn lights red');
 
   await panel.getByRole('button', { name: `查看 ${projects[0].name} 的完成结果` }).click();
-  await page.getByRole('button', { name: '标记开发完成', exact: true }).click();
-  await waitFor(async () => !await page.locator('.focus-mode').count(), 'finish returns to grid');
-  await waitFor(async () => panel.getAttribute('data-status').then(s => s === 'done'), 'green complete status');
+  await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].unread === 0, 'viewing acknowledges the automatic completion');
+  await page.getByRole('button', { name: '返回总览', exact: true }).click();
+  await waitFor(async () => !await page.locator('.focus-mode').count(), 'viewed result returns to grid');
   assert.equal(await panel.evaluate(el => getComputedStyle(el).animationName), 'none');
-  console.log('PASS: manually completing a project makes a persistent green, non-blinking panel');
+  console.log('PASS: viewing an automatic completion clears attention without a manual project-finish action');
 
   const target = bootstraps.find(b => b.projectId === projects[2].id);
   await page.evaluate(id => window.projectGrid.writeTerminal(id, "Write-Output 'IDLE_ALERT_FIXTURE'\r"), projects[2].id);
@@ -512,9 +513,9 @@ try {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   assert.equal(overflow, false);
   await page.getByRole('button', { name: `${projects[0].name} 的更多操作`, exact: true }).click();
-  await page.getByRole('menuitem', { name: '继续开发', exact: true }).click();
-  await waitFor(async () => (await page.evaluate(() => window.projectGrid.getState())).value.projects[0].done === false, 'project menu reopens development');
-  await page.evaluate(id => window.projectGrid.markDone(id, true), projects[0].id);
+  assert.equal(await page.getByRole('menuitem', { name: /继续开发|标记开发完成|VS Code/ }).count(), 0);
+  assert.deepEqual(await page.evaluate(() => ['markDone', 'openInCode'].filter(key => key in window.projectGrid)), []);
+  await page.getByRole('button', { name: `${projects[0].name} 的更多操作`, exact: true }).click();
   console.log('PASS: compact top titlebar, search, settings and 820–1600px windows');
 
   // A spoofed or stale session key cannot light an unrelated project's tile.
@@ -525,10 +526,10 @@ try {
   });
   assert.equal((await page.evaluate(() => window.projectGrid.getState())).value.projects[1].unread, 0);
   const saved = JSON.parse(await fs.readFile(path.join(dataDir, 'workspace.json'), 'utf8'));
-  assert.equal(saved.projects[0].done, true);
+  assert.ok(saved.projects.every(project => !('done' in project)));
   assert.equal(saved.projects[2].unread, 1);
   assert.deepEqual(errors, []);
-  console.log('PASS: persisted green/red states and rejected wrong-session events');
+  console.log('PASS: persisted completion history without manual state and rejected wrong-session events');
   console.log(`Screenshots: ${output}`);
 } catch (error) {
   console.error(error);

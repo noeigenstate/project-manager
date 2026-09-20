@@ -141,16 +141,6 @@ try {
   await page.keyboard.press('Control+Shift+g'); await settled(false);
   console.log('PASS: only the header/expand button opens the card; unpaused animation works without test-only rendering flags');
 
-  await page.evaluate(id => window.projectGrid.markDone(id, true), id);
-  await page.waitForFunction(id => document.querySelector(`[data-project-id="${id}"]`).classList.contains('is-done'), id);
-  await panel.locator('.panel-terminal-area').click({ position: { x: 36, y: 95 } });
-  assert.equal(await page.locator('.focus-mode').count(), 0, 'green-card terminal input stays in the overview too');
-  await panel.locator('.panel-header').click({ position: { x: 8, y: 8 } });
-  await settled(true); await landed(id);
-  await page.keyboard.press('Control+Shift+g'); await settled(false);
-  await page.evaluate(id => window.projectGrid.markDone(id, false), id);
-  console.log('PASS: completed cards also require an explicit header click to expand');
-
   await panel.locator('.panel-name').click();
   await page.waitForSelector('.focus-motion-panel');
   await page.keyboard.press('Control+Shift+g');

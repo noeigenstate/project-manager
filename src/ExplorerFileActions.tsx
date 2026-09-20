@@ -61,10 +61,10 @@ export function useExplorerFileActions(project: Project, changed: (directory?: s
   };
   const folder = (entry: FileEntry) => entry.kind === 'directory' || !entry.path ? entry.path : parentOf(entry.path);
   const targets = (entry: FileEntry) => selected.includes(entry.path) ? selected : [entry.path];
-  const copy = (paths: string[]) => run(async () => { const result = await unwrap(window.projectGrid.copyEntries(project.id, paths)); setMessage(`已复制 ${result.count} 项，可粘贴到其他位置`); });
+  const copy = (paths: string[]) => run(async () => { const result = await unwrap(window.projectGrid.copyEntries(project.id, paths)); if (!result.superseded) setMessage(`已复制 ${result.count} 项，可粘贴到其他位置`); });
   const copyPaths = async (paths: string[], format: 'absolute' | 'relative') => {
-    setMenu(null);
-    try { await unwrap(window.projectGrid.copyPaths(project.id, paths, format)); setMessage(format === 'absolute' ? '已复制绝对路径' : '已复制相对路径'); }
+    setMenu(null); setMessage('');
+    try { const result = await unwrap(window.projectGrid.copyPaths(project.id, paths, format)); if (!result.superseded) setMessage(format === 'absolute' ? '已复制绝对路径' : '已复制相对路径'); }
     catch (error) { setMessage(String((error as Error).message || error)); }
   };
   const paste = (directory: string) => run(async () => {

@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { fileClipboard } = require('./file-clipboard.cjs');
+const { ClipboardWrites } = require('./clipboard-writes.cjs');
 
 function inside(root, filename) { const relative = path.relative(root, filename); return !relative || relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative); }
 function cleanRelative(value, root = false) {
@@ -41,8 +42,8 @@ async function unusedName(directory, name) {
 }
 
 class FileOperations {
-  constructor({ integrationDir, cacheRoot, remote, trash, confirmDelete, progress = () => {}, clipboard }) {
-    Object.assign(this, { integrationDir, cacheRoot, remote, trash, confirmDelete, progress });
+  constructor({ integrationDir, cacheRoot, remote, trash, confirmDelete, progress = () => {}, clipboard, clipboardWrites = new ClipboardWrites() }) {
+    Object.assign(this, { integrationDir, cacheRoot, remote, trash, confirmDelete, progress, clipboardWrites });
     this.clipboard = clipboard || ((action, paths) => fileClipboard(integrationDir, action, paths));
     this.move = (source, target) => process.platform === 'win32' ? fileClipboard(integrationDir, 'move', [source, target]) : fs.rename(source, target);
   }
@@ -94,6 +95,7 @@ class FileOperations {
   async copy(project, paths) {
     const chosen = selections(paths);
     return this.run(project, '正在复制文件…', async (update, check) => {
+      const revision = this.clipboardWrites.reserve();
       const files = [];
       if (project.kind !== 'ssh') {
         for (const relative of chosen) files.push(await entryPath(project, relative, true));
@@ -113,7 +115,7 @@ class FileOperations {
           throw error;
         }
       }
-      check(); await this.clipboard('copy', files);
+      if (!await this.clipboardWrites.commit(revision, () => { check(); return this.clipboard('copy', files); })) return { count: 0, superseded: true };
       return { count: files.length };
     });
   }
