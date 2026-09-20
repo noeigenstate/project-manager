@@ -53,13 +53,25 @@ try {
   await waitFor(async () => (await state()).terminals.length === 2 && (await state()).terminals.every(item => item.shellReady), 'two ready terminals');
   const ids = (await state()).terminals.map(item => item.id);
   assert.equal((await state()).terminals[0].sessionId, primarySession);
-  for (const [index, id] of ids.entries()) await page.evaluate(({ id, index }) => window.projectGrid.writeTerminal(id, `[IO.File]::WriteAllText('terminal-${index}.txt', 'INDEPENDENT_${index}')\r`), { id, index });
-  await waitFor(async () => fs.access(path.join(project.path, 'terminal-1.txt')).then(() => true, () => false), 'independent commands');
-  assert.equal(await fs.readFile(path.join(project.path, 'terminal-0.txt'), 'utf8'), 'INDEPENDENT_0');
+  for (const [index, id] of ids.entries()) {
+    await page.locator(`[data-terminal-id="${id}"] .terminal-split-body`).click({ position: { x: 30, y: 60 } });
+    await page.keyboard.type(`[IO.File]::WriteAllText('terminal-${index}.json', (@{Process=$PID;Value='INDEPENDENT_${index}'} | ConvertTo-Json -Compress))`);
+    await page.keyboard.press('Enter');
+  }
+  await waitFor(async () => fs.access(path.join(project.path, 'terminal-1.json')).then(() => true, () => false), 'independent commands');
+  await waitFor(async () => (await state()).terminals.every(item => item.shellReady), 'both commands return to their own prompts');
+  const proofs = await Promise.all(ids.map((_id, index) => fs.readFile(path.join(project.path, `terminal-${index}.json`), 'utf8').then(JSON.parse)));
+  assert.equal(proofs[0].Value, 'INDEPENDENT_0'); assert.equal(proofs[1].Value, 'INDEPENDENT_1');
+  assert.ok(proofs.every(proof => Number.isInteger(proof.Process) && proof.Process > 0));
+  assert.notEqual(proofs[0].Process, proofs[1].Process, 'each split must own a distinct native shell process');
   for (const [index, id] of ids.entries()) {
     const snapshot = await page.evaluate(id => window.projectGrid.attachTerminal(id), id);
-    assert.ok(snapshot.value.data.includes(`INDEPENDENT_${index}`));
-    assert.ok(!snapshot.value.data.includes(`INDEPENDENT_${1 - index}`));
+    assert.equal(snapshot.value.sessionId, (await state()).terminals[index].sessionId);
+    // Raw VT history may contain a prediction from shared PSReadLine history
+    // that was erased before submission. Assert the final screen instead.
+    const visible = (await page.locator(`[data-terminal-id="${id}"] .xterm-rows`).innerText()).replace(/\s/g, '');
+    assert.ok(visible.includes(`INDEPENDENT_${index}`));
+    assert.ok(!visible.includes(`INDEPENDENT_${1 - index}`));
   }
   await page.getByRole('button', { name: `全屏查看 ${project.name}`, exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.focus-mode') && !document.querySelector('[data-focus-motion]'));
