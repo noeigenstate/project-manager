@@ -127,6 +127,9 @@ jobs:
       - name: Verify liquid glass under terminal load and reduced transparency
         run: npm run test:material -- --packaged
 
+      - name: Verify transparent real Codex input and bright text without model requests
+        run: npm run test:composer -- --packaged
+
       - name: Create checksum and build notes
         run: |
           $version = '${{ steps.version.outputs.version }}'
@@ -190,6 +193,8 @@ jobs:
             .test-output/clipboard-*/*.png
             .test-output/material-*/*.png
             .test-output/material-*/results.json
+            .test-output/composer-*/*.png
+            .test-output/composer-*/results.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
@@ -243,6 +248,7 @@ jobs:
           - Image path copying waits for the native clipboard to finish and produces text only. A slower earlier file copy cannot overwrite a newer copied path.
           - Borders and status dots visibly fade dark to bright to dark together over 2 seconds, including while hovering or typing. Completion breathes three times, then stays quiet; viewed automatic round completion stays steady green.
           - Brighter, bolder interface and terminal text, readable faint ANSI output and selected inverse text across all three transparent themes. Custom terminal font sizes and color hues are preserved.
+          - Codex's dark input and matching history surfaces are transparent, with fully bright faint text. Each split keeps its own styling; ordinary shells, colored diff backgrounds, selection and block cursors remain distinct. Verified in a real offline Codex TUI with Chinese multiline input, copy/paste and preserved drafts.
           - Title and status bars meet the window edges, including beside the explorer. Project cards use tighter 8px spacing and smaller 14px corners.
           - Smaller Windows x64 packages exclude source maps, native build sources, duplicate/other-platform PTY binaries and Python caches; required local/SSH runtimes are verified before release.
           - Choose Forest Light, Mountain Blue or Wild Red in Settings; themes apply immediately and persist without restarting terminals.

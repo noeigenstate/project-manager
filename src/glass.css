@@ -90,7 +90,11 @@ kbd { border-color: #dbeeff26; color: #8ca3bd; background: #e9f4ff06; }
 .terminal-host .xterm-rows { text-shadow: var(--text-shadow); }
 /* DIM is encoded in color alpha. Keep each resolved RGB, including ANSI and
    truecolor, while making faint glyphs readable without filtering the terminal. */
-.terminal-host .xterm-rows .xterm-dim { -webkit-text-fill-color: rgb(from currentColor r g b / max(alpha, .9)); }
+.terminal-host .xterm-rows .xterm-dim { -webkit-text-fill-color: rgb(from currentColor r g b / 1); }
+/* Codex's dark composer/history surface is truecolor #1e1e1e. xterm can
+   serialize it as hex or rgb after measuring glyphs. Keep other terminal
+   backgrounds, selection decorations and the block cursor intact. */
+.terminal-split[data-codex-active="true"] .xterm-rows span:is([style*="background-color:#1e1e1e;"], [style*="background-color: rgb(30, 30, 30);"]):not(.xterm-decoration-top, .xterm-cursor-block) { background-color: transparent !important; }
 /* xterm 6 uses foreground 257 for default inverse and decoration-top for
    selected cells here (we register no other decorations). Keep block-cursor ink. */
 .terminal-host .xterm-rows .xterm-decoration-top.xterm-fg-257:not(.xterm-cursor-block) { color: #fff; }

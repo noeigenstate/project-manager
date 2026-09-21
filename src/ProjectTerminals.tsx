@@ -30,7 +30,7 @@ export function ProjectTerminals({ project, focused, fontSize, activeId, setActi
     {terminals.map(terminal => {
       const stopped = terminal.status === 'stopped' || terminal.status === 'exited';
       const name = `${project.name} ${terminal.title}`;
-      return <section key={terminal.id} className={`terminal-split ${selected === terminal.id ? 'is-active-terminal' : ''}`} data-terminal-id={terminal.id} aria-label={name} onPointerDownCapture={() => setActiveId(terminal.id)}>
+      return <section key={terminal.id} className={`terminal-split ${selected === terminal.id ? 'is-active-terminal' : ''}`} data-terminal-id={terminal.id} data-codex-active={terminal.codexActive} aria-label={name} onPointerDownCapture={() => setActiveId(terminal.id)}>
         {multiple && <header className="terminal-split-header"><span>{terminal.title}</span><span className={`split-status ${terminal.codexActivity === 'working' ? 'working' : terminal.codexActivity === 'complete' ? 'complete' : ''}`}>{label(terminal)}</span>
           <button className="icon-button" title="重启此终端" aria-label={`重启 ${name}`} onClick={() => void onAction(window.projectGrid.restartTerminal(terminal.id))}><ArrowCounterClockwise size={13} /></button>
           <button className="icon-button" title="关闭此终端" aria-label={`关闭 ${name}`} onClick={() => void onAction(window.projectGrid.closeTerminal(terminal.id))}><X size={13} /></button>

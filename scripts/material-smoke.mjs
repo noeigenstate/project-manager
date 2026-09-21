@@ -92,7 +92,7 @@ try {
       assert.equal(cell.size, '13px', 'user font size stays unchanged');
       assert.equal(cell.filter, 'none'); assert.equal(cell.opacity, '1');
       if (cell.label.startsWith('DIM_')) {
-        assert.ok(cell.fill[3] >= 229, `${cell.label} glyph alpha is at least 90%`);
+        assert.equal(cell.fill[3], 255, `${cell.label} glyphs use full brightness`);
         assert.ok(cell.fill.slice(0, 3).every((value, index) => Math.abs(value - cell.color[index]) <= 2), 'DIM keeps the resolved RGB channels');
       }
     }
