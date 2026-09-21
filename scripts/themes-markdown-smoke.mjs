@@ -25,6 +25,7 @@ await fs.writeFile(path.join(profile, 'workspace.json'), JSON.stringify({ versio
 const env = { ...process.env, PROJECT_GRID_DATA_DIR: profile, PROJECT_GRID_TEST_SSH_CONFIG: ssh.configFile }; delete env.ELECTRON_RUN_AS_NODE; delete env.PROJECT_GRID_DEV_URL;
 const packaged = process.argv.includes('--packaged');
 let app, page;
+const wallpaperChecks = [];
 async function waitFor(check, name) { const until = Date.now() + 20000; while (Date.now() < until) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 60)); } throw new Error(`Timed out: ${name}`); }
 const state = async () => (await page.evaluate(() => window.projectGrid.getState())).value;
 async function launch() {
@@ -40,6 +41,19 @@ async function chooseTheme(id, name) {
   await dialog.getByText(name, { exact: true }).click();
   await waitFor(async () => page.evaluate(id => document.documentElement.dataset.theme === id, id), 'theme applied');
   assert.ok(await dialog.getByRole('radio', { name, exact: true }).isChecked());
+  const wallpaper = await page.evaluate(async id => {
+    const surface = getComputedStyle(document.querySelector('.app-shell'));
+    const swatch = getComputedStyle(document.querySelector(`[data-theme-preview="${id}"]`));
+    const url = style => style.backgroundImage.match(/url\("([^"]+)"\)/)?.[1];
+    const image = new Image(); image.src = url(surface); await image.decode();
+    return { theme: id, url: image.src, preview: url(swatch), width: image.naturalWidth, height: image.naturalHeight, fit: surface.backgroundSize, position: surface.backgroundPosition, previewPosition: swatch.backgroundPosition, online: navigator.onLine };
+  }, id);
+  assert.equal(wallpaper.url, wallpaper.preview, 'settings preview reuses the actual wallpaper');
+  assert.ok(!/^https?:/.test(wallpaper.url), 'wallpaper is a packaged local asset');
+  assert.equal(wallpaper.width, 3840, 'wallpaper retains 4K width');
+  assert.ok(wallpaper.height >= 2160 && wallpaper.fit.includes('cover'), 'wallpaper fills without stretching');
+  assert.equal(wallpaper.position.split(',').at(-1).trim(), wallpaper.previewPosition, 'preview and workspace crop match');
+  wallpaperChecks.push(wallpaper);
   await page.screenshot({ path: path.join(output, `${id}-settings.png`) });
   await dialog.getByRole('button', { name: '关闭设置', exact: true }).click();
 }
@@ -55,6 +69,7 @@ try {
   const originalColors = await colors();
   await first.locator('.terminal-host').evaluate(node => { globalThis.originalThemeTerminal = node; });
   await page.evaluate(id => window.projectGrid.writeTerminal(id, "Write-Output 'PENDING_THEME_DRAFT'"), projects[0].id);
+  await page.context().setOffline(true);
   for (const [id, name] of [['mountain-blue', '山青蓝'], ['wild-red', '西野红'], ['forest', '林间光影']]) {
     await chooseTheme(id, name);
     assert.equal((await state()).projects[0].sessionId, sessionId);
@@ -64,6 +79,9 @@ try {
     assert.equal(signal, '255, 134, 212');
     await page.screenshot({ path: path.join(output, `${id}-overview.png`) });
   }
+  assert.ok(wallpaperChecks.every(wallpaper => !wallpaper.online), 'all themes and previews load offline');
+  await fs.writeFile(path.join(output, 'wallpapers.json'), JSON.stringify(wallpaperChecks, null, 2));
+  await page.context().setOffline(false);
   assert.ok((await page.evaluate(id => window.projectGrid.attachTerminal(id), projects[0].id)).value.data.includes('PENDING_THEME_DRAFT'));
   await chooseTheme('mountain-blue', '山青蓝');
   await first.getByRole('button', { name: `全屏查看 ${projects[0].name}`, exact: true }).click();
@@ -77,7 +95,7 @@ try {
     return { gap: footer.top - box.bottom, margin: parseFloat(getComputedStyle(node).marginBottom), footerLeft: footer.left, footerRight: footer.right, width: innerWidth };
   });
   assert.ok(Math.abs(previewGeometry.gap - previewGeometry.margin) <= 1, 'preview has no obsolete extra footer gap');
-  assert.ok(previewGeometry.footerLeft === 0 && previewGeometry.footerRight === previewGeometry.width, 'footer spans explorer and preview');
+  assert.ok(Math.abs(previewGeometry.footerLeft) < 1 && Math.abs(previewGeometry.footerRight - previewGeometry.width) < 1, `footer spans explorer and preview within DPI rounding: ${JSON.stringify(previewGeometry)}`);
   assert.equal(await editor.evaluate(node => getComputedStyle(node).fontWeight), '600');
   await page.getByRole('button', { name: '预览', exact: true }).click();
   const markdown = page.getByRole('article', { name: 'Markdown 预览', exact: true });
@@ -126,6 +144,7 @@ try {
   await launch();
   assert.equal((await state()).settings.theme, 'wild-red');
   await waitFor(async () => page.evaluate(() => document.documentElement.dataset.theme === 'wild-red'), 'theme survives restart');
+  await fs.writeFile(path.join(output, 'wallpapers.json'), JSON.stringify(wallpaperChecks, null, 2));
   console.log('PASS: three persistent themes preserve ANSI colors, task colors, terminal identity and drafts');
   console.log('PASS: automatic editing, local/SSH Markdown render and save, GFM, relative resources and links, and sanitized HTML');
   console.log(`Screenshots: ${output}`);

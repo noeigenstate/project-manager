@@ -187,6 +187,7 @@ jobs:
             .test-output/focus-motion-*/*.png
             .test-output/editor-terminals-*/*.png
             .test-output/themes-markdown-*/*.png
+            .test-output/themes-markdown-*/wallpapers.json
             .test-output/visual-*/*.png
             .test-output/visual-*/results.json
             .test-output/navigation-*/*.png
@@ -252,6 +253,7 @@ jobs:
           - Title and status bars meet the window edges, including beside the explorer. Project cards use tighter 8px spacing and smaller 14px corners.
           - Smaller Windows x64 packages exclude source maps, native build sources, duplicate/other-platform PTY binaries and Python caches; required local/SSH runtimes are verified before release.
           - Choose Forest Light, Mountain Blue or Wild Red in Settings; themes apply immediately and persist without restarting terminals.
+          - High Sierra, Big Sur coast and Sierra landscape wallpapers are bundled at 3840-pixel width. Local WebP assets keep wallpaper previews and backgrounds available offline, with proportional cropping and clear terminal text.
           - Text/code files open directly in edit mode. Markdown previews render headings, tables, code, task lists, local/SSH images and links, including unsaved drafts.
           - Add independent terminals inside each project with automatic split layout, separate Codex identities and individual session recovery.
           - Edit text and HTML source, save with Ctrl+S, preserve encoding and untouched large-file segments, and detect external modification conflicts.

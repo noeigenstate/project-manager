@@ -133,7 +133,7 @@ try {
     const top = document.querySelector('.titlebar').getBoundingClientRect(), bottom = document.querySelector('.workspace-statusbar').getBoundingClientRect();
     return { top: top.top, left: top.left, right: top.right, bottom: bottom.bottom, bottomLeft: bottom.left, bottomRight: bottom.right, width: innerWidth, height: innerHeight };
   });
-  assert.ok(compactEdges.top === 0 && compactEdges.left === 0 && compactEdges.bottomLeft === 0 && compactEdges.right === compactEdges.width && compactEdges.bottomRight === compactEdges.width && compactEdges.bottom === compactEdges.height, 'compact bars meet viewport edges');
+  assert.ok([compactEdges.top, compactEdges.left, compactEdges.bottomLeft, compactEdges.right - compactEdges.width, compactEdges.bottomRight - compactEdges.width, compactEdges.bottom - compactEdges.height].every(gap => Math.abs(gap) < 1), `compact bars meet viewport edges within DPI rounding: ${JSON.stringify(compactEdges)}`);
   await panel(3).locator('.panel-terminal-area').click({ position: { x: 40, y: 50 } });
   await page.keyboard.type('DRAFT_STAYS_SMALL'); assert.equal(await page.locator('.focus-mode').count(), 0);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1600, 900));

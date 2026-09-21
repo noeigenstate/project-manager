@@ -18,7 +18,7 @@
   isolation: isolate;
   background:
     linear-gradient(rgba(10, 22, 27, .19), rgba(10, 22, 27, .19)),
-    url('./assets/sky-canopy-oil.png') center / cover no-repeat;
+    url('./assets/macos-high-sierra.webp') center / cover no-repeat;
 }
 .titlebar, .workspace-statusbar, .focus-sidebar, .project-panel, .settings-dialog, .file-preview {
   backdrop-filter: var(--liquid-backdrop, blur(1.5px) saturate(135%));

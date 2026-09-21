@@ -37,7 +37,7 @@ await fs.mkdir(path.join(previewProject, relativeReportFolder), { recursive: tru
 await fs.writeFile(path.join(previewProject, relativeReportFolder, 'report.html'), '<meta charset="UTF-8"><h1>RELATIVE_REPORT_READY</h1>');
 await fs.copyFile(path.join(root, 'assets/icon.png'), path.join(previewProject, relativeReportFolder, '预览_(最终).png'));
 await fs.mkdir(path.join(previewProject, 'reports'));
-await fs.copyFile(path.join(root, 'src/assets/sky-canopy-oil.png'), path.join(previewProject, 'image-preview.png'));
+await fs.copyFile(path.join(root, 'tests/fixtures/preview-large.png'), path.join(previewProject, 'image-preview.png'));
 await fs.copyFile(path.join(root, 'assets/icon.png'), path.join(previewProject, 'image-without-extension'));
 await fs.copyFile(path.join(root, 'tests/fixtures/preview.webm'), path.join(previewProject, 'preview.webm'));
 await fs.copyFile(path.join(root, 'tests/fixtures/preview.mp4'), path.join(previewProject, 'preview.mp4'));
@@ -266,7 +266,7 @@ try {
   const imageUrl = await imagePreview.getAttribute('src');
   await page.getByRole('button', { name: '关闭文件预览', exact: true }).click();
   assert.equal(await application.evaluate(async ({ net }, url) => (await net.fetch(url)).status, imageUrl), 404);
-  await fs.copyFile(path.join(root, 'src/assets/sky-canopy-oil.png'), path.join(previewProject, 'image-preview.png'));
+  await fs.copyFile(path.join(root, 'tests/fixtures/preview-large.png'), path.join(previewProject, 'image-preview.png'));
 
   await page.getByRole('treeitem', { name: 'reports', exact: true }).click();
   await page.getByRole('treeitem', { name: 'preview.html', exact: true }).click();

@@ -1,7 +1,7 @@
 export const themes = [
-  { id: 'forest', name: '林间光影', description: '树影、蓝天与油画笔触' },
-  { id: 'mountain-blue', name: '山青蓝', description: '青蓝远山与清透冷光' },
-  { id: 'wild-red', name: '西野红', description: '暖调红棕与柔和金属光' },
+  { id: 'forest', name: '林间光影', description: 'High Sierra · 山湖与秋日林光' },
+  { id: 'mountain-blue', name: '山青蓝', description: 'Big Sur · 青山与蔚蓝海岸' },
+  { id: 'wild-red', name: '西野红', description: 'Sierra · 暮色云霞与暖红山峰' },
 ] as const;
 
 export type ThemeId = typeof themes[number]['id'];

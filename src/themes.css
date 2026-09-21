@@ -49,10 +49,10 @@
   --theme-button-ink: #502e39;
 }
 :root[data-theme="mountain-blue"] .app-shell {
-  background: linear-gradient(#0c273320, #0c273333), url('./assets/mountain-blue.svg') center / cover no-repeat;
+  background: linear-gradient(#0c273320, #0c273333), url('./assets/macos-big-sur.webp') center 35% / cover no-repeat;
 }
 :root[data-theme="wild-red"] .app-shell {
-  background: linear-gradient(#24192012, #2419202e), url('./assets/wild-red.svg') center / cover no-repeat;
+  background: linear-gradient(#24192012, #2419202e), url('./assets/macos-sierra.webp') center / cover no-repeat;
 }
 
 /* Palette changes affect materials, never terminal ANSI colors or task signals. */
@@ -83,9 +83,9 @@
 .theme-option { position: relative; min-width: 0; cursor: pointer; }
 .theme-option input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
 .theme-swatch { position: relative; display: block; height: 79px; overflow: hidden; border: 1px solid #ffffff38; border-radius: 12px; box-shadow: inset 0 1px 0 #ffffff38; transition: border-color .15s, box-shadow .15s; }
-.theme-swatch[data-theme-preview="forest"] { background: url('./assets/sky-canopy-oil.png') center / cover; }
-.theme-swatch[data-theme-preview="mountain-blue"] { background: url('./assets/mountain-blue.svg') center / cover; }
-.theme-swatch[data-theme-preview="wild-red"] { background: url('./assets/wild-red.svg') center / cover; }
+.theme-swatch[data-theme-preview="forest"] { background: url('./assets/macos-high-sierra.webp') center / cover; }
+.theme-swatch[data-theme-preview="mountain-blue"] { background: url('./assets/macos-big-sur.webp') center 35% / cover; }
+.theme-swatch[data-theme-preview="wild-red"] { background: url('./assets/macos-sierra.webp') center / cover; }
 .theme-mini-window { display: flex; flex-direction: column; gap: 5px; position: absolute; inset: 20px 14px -8px; padding: 11px 10px; border: 1px solid #ffffff52; border-radius: 7px 7px 0 0; background: #0e1c2587; backdrop-filter: blur(7px); }
 .theme-mini-window i { width: 58%; height: 3px; border-radius: 3px; background: #e4f3f19c; }
 .theme-mini-window i:nth-child(2) { width: 78%; opacity: .65; }.theme-mini-window i:nth-child(3) { width: 38%; opacity: .45; }
