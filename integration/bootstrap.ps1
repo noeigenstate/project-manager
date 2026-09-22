@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Continue'
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $OutputEncoding = [Console]::OutputEncoding
+. (Join-Path $PSScriptRoot 'refresh-path.ps1')
 $global:ProjectGridSession = Get-Content -LiteralPath $env:PROJECT_GRID_BOOTSTRAP -Raw -Encoding UTF8 | ConvertFrom-Json
 $global:ProjectGridEventSequence = 0
 Set-Location -LiteralPath $global:ProjectGridSession.projectPath

@@ -93,6 +93,9 @@ jobs:
       - name: Verify desktop with actual terminal button clicks
         run: npm run test:desktop -- --packaged
 
+      - name: Verify local terminal restarts refresh Windows PATH without restarting the app
+        run: npm run test:path-refresh -- --packaged
+
       - name: Verify session recovery, clipboard and SSH desktop interaction
         run: npm run test:sessions -- --packaged
 
@@ -196,6 +199,8 @@ jobs:
             .test-output/material-*/results.json
             .test-output/composer-*/*.png
             .test-output/composer-*/results.json
+            .test-output/path-refresh-*/*.png
+            .test-output/path-refresh-*/results.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
@@ -242,6 +247,7 @@ jobs:
           Install Codex CLI on the computer or Linux SSH host where your project runs.
 
           - Multiple project terminals with completion alerts.
+          - New and restarted local terminals pick up newly installed tools from Windows PATH without restarting Project Grid. Existing injected toolchain paths keep their priority; other terminals remain untouched.
           - Clear liquid-glass title/status bars, sidebar and terminal shells reveal the background with thin optical rims and real SVG backdrop refraction. Text and ANSI colors remain separate from the lens.
           - All themes include an opaque Reduced Transparency fallback. Packaged tests compare refraction pixels and exercise 6/16 cards with six streaming terminals.
           - All VS Code launch actions and manual project-completion controls have been removed. SSH folder menus, terminal directory links and Markdown directory links open the built-in explorer and respect unsaved edits.

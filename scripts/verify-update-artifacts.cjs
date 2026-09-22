@@ -46,7 +46,7 @@ assert.ok(!packedFiles.some(file => file.startsWith('node_modules/node-addon-api
 for (const file of ['conpty.node', 'conpty_console_list.node', 'conpty/OpenConsole.exe', 'conpty/conpty.dll']) {
   assert.ok(fs.statSync(path.join(release, 'win-unpacked/resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64', file)).size > 0, `keep required terminal runtime ${file}`);
 }
-for (const file of ['bootstrap.ps1', 'notify.ps1', 'remote-worker.py', 'ssh-askpass.exe', 'ssh-askpass.cjs', 'ssh-askpass.sh', 'file-clipboard.exe']) {
+for (const file of ['bootstrap.ps1', 'refresh-path.ps1', 'notify.ps1', 'remote-worker.py', 'ssh-askpass.exe', 'ssh-askpass.cjs', 'ssh-askpass.sh', 'file-clipboard.exe']) {
   assert.ok(fs.statSync(path.join(release, 'win-unpacked/resources/integration', file)).size > 0, `keep required integration ${file}`);
 }
 assert.ok(!fs.readdirSync(path.join(release, 'win-unpacked/resources/integration')).some(file => file === '__pycache__' || /\.(pyc|cs)$/.test(file)), 'integration ships runtime helpers, not build sources or Python caches');
