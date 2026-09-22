@@ -8,6 +8,8 @@ const { RemoteConnection } = require('../electron/remote-connection.cjs');
 const { PreviewResources, resourceResponse } = require('../electron/preview-resources.cjs');
 const { FileOperations } = require('../electron/file-operations.cjs');
 const { createSSHFixture } = require('./helpers/ssh-fixture.cjs');
+const { ProjectGit, gitEnvironment } = require('../electron/project-git.cjs');
+const execGit = require('node:util').promisify(require('node:child_process').execFile);
 
 const integrationDir = path.resolve(__dirname, '..', 'integration');
 const sshPath = process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/OpenSSH/ssh.exe') : 'ssh';
@@ -15,6 +17,8 @@ const waitFor = async callback => { const started = Date.now(); while (Date.now(
 
 test('native OpenSSH reuses host config, authenticates once and carries terminal plus file requests', { timeout: 30000 }, async t => {
   const fixture = await createSSHFixture();
+  for (const args of [['init', '-b', 'main'], ['config', 'user.name', 'SSH Test'], ['config', 'user.email', 'test@example.invalid'], ['commit', '--allow-empty', '-m', 'SSH history']]) await execGit('git', ['-C', fixture.project, ...args], { env: gitEnvironment(), windowsHide: true });
+  await fs.writeFile(path.join(fixture.project, 'git-status.txt'), 'untracked');
   const auth = await new SSHAuthServer().start();
   const events = []; let output = '';
   const project = { id: randomUUID(), kind: 'ssh', path: process.platform === 'win32' ? '/srv/fixture' : fixture.project, ssh: { host: 'fixture', configFile: fixture.configFile } };
@@ -22,6 +26,11 @@ test('native OpenSSH reuses host config, authenticates once and carries terminal
   connection.onData(data => { output += data; });
   t.after(async () => { connection.close(); auth.close(); await fixture.close(); });
   await connection.ready;
+  const gitReader = new ProjectGit(() => connection);
+  assert.equal((await gitReader.read(project, 'status')).files[0].path, 'git-status.txt');
+  const commits = (await gitReader.read(project, 'history', 0)).commits;
+  assert.equal(commits[0].subject, 'SSH history');
+  assert.equal((await gitReader.read(project, 'files', commits[0].hash)).total, 0);
   const listing = await connection.request('directory', { path: '', offset: 0 });
   assert.equal(listing.path, '');
   await waitFor(() => events.some(event => event.type === 'shell-prompt'));

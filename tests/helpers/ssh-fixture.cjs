@@ -5,6 +5,7 @@ const { generateKeyPairSync, randomBytes } = require('node:crypto');
 const { spawn, execFileSync } = require('node:child_process');
 const { Server, utils } = require('ssh2');
 const { listDirectory, readProjectFile, saveProjectFile, resolveProjectPath } = require('../../electron/project-files.cjs');
+const { readGitRaw } = require('../../electron/project-git.cjs');
 
 async function createSSHFixture({ password = false, unknownHost = false, nativeWorker = process.platform !== 'win32' } = {}) {
   const prefix = path.join(os.tmpdir(), 'project-grid-ssh-test-');
@@ -51,6 +52,7 @@ async function createSSHFixture({ password = false, unknownHost = false, nativeW
           const request = async message => {
             const local = { path: project };
             if (message.op === 'directory') return listDirectory(local, message.path, message.offset || 0);
+            if (message.op === 'git') return readGitRaw(project, message.action, message.value);
             if (message.op === 'preview') return readProjectFile(local, message.path, message.page || 0);
             if (message.op === 'save-file') return saveProjectFile(local, message.path, message.page || 0, message.revision, Buffer.from(message.data, 'base64').toString('utf8'));
             if (message.op === 'stat') {

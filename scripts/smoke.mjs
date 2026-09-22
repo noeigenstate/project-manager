@@ -429,7 +429,7 @@ try {
   await page.screenshot({ path: path.join(output, 'collapsed-sidebar.png') });
   assert.ok(await page.getByRole('button', { name: '返回总览', exact: true }).isVisible());
   assert.equal(await page.getByRole('button', { name: /标记开发完成|在 VS Code 打开/ }).count(), 0);
-  assert.ok(await page.locator('.focus-sidebar').getByRole('button', { name: '工作台设置', exact: true }).isVisible());
+  assert.ok(await page.locator('.focus-sidebar').getByRole('button', { name: 'Git 历史', exact: true }).isVisible());
   await page.keyboard.press('Control+b');
   await page.getByRole('treeitem', { name: 'panel.tsx', exact: true }).waitFor();
   await page.getByRole('button', { name: '折叠所有文件夹', exact: true }).click();

@@ -10,6 +10,7 @@ const { WorkspaceStore } = require('./state.cjs');
 const { createEventServer } = require('./events.cjs');
 const { listDirectory, readProjectFile, saveProjectFile, resolveProjectPath, VIDEO_TYPES } = require('./project-files.cjs');
 const { projectPaths } = require('./project-paths.cjs');
+const { ProjectGit } = require('./project-git.cjs');
 const { isTerminalResponse, acceptShellEvent, SubmissionTracker } = require('./terminal-input.cjs');
 const { createTerminalEnvironment } = require('./terminal-env.cjs');
 const { PreviewResources, resourceResponse } = require('./preview-resources.cjs');
@@ -42,6 +43,7 @@ protocol.registerSchemesAsPrivileged([
 let window, tray, store, eventServer, sshAuth, updateManager, quitting = false, installingUpdate = false;
 const sessions = new Map();
 const branches = new Map();
+const projectGit = new ProjectGit(id => remoteFor(id));
 const startupErrors = new Map();
 const restorePlans = new Map();
 const previewResources = new PreviewResources({ remote: project => remoteFor(project.id) });
@@ -468,6 +470,14 @@ function registerIpc() {
     if (patch.restoreSessions === false) restorePlans.clear();
   });
   handle('project:directory', (id, relativePath = '', offset = 0) => findProject(id).kind === 'ssh' ? remoteFor(id).request('directory', { path: relativePath, offset }) : listDirectory(findProject(id), relativePath, offset));
+  handle('project:git-status', async id => {
+    const project = findProject(id), status = await projectGit.read(project, 'status');
+    const branch = status.repository ? status.detached ? `HEAD ${status.head.slice(0, 8)}` : status.branch : '';
+    if (store.projects.some(item => item.id === id) && branches.get(id) !== branch) { branches.set(id, branch); broadcast(); }
+    return status;
+  });
+  handle('project:git-history', (id, offset = 0) => projectGit.read(findProject(id), 'history', offset));
+  handle('project:git-files', (id, hash) => projectGit.read(findProject(id), 'files', hash));
   handle('project:create-entry', (id, directory, name, kind) => fileOperations.create(findProject(id), directory, name, kind));
   handle('project:rename-entry', async (id, relative, name) => {
     if (affectsEditor(id, [relative]) && !await allowEditorClose()) throw new Error('已取消重命名。');

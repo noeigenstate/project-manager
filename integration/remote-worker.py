@@ -255,6 +255,45 @@ class Worker:
         info = os.stat(filename)
         return {"path": relative, "name": os.path.basename(filename), "size": info.st_size, "modifiedAt": int(info.st_mtime * 1000), "realPath": os.path.relpath(filename, self.root).replace(os.sep, "/"), "directory": stat.S_ISDIR(info.st_mode), "file": stat.S_ISREG(info.st_mode), "link": os.path.islink(os.path.join(self.root, relative))}
 
+    def git(self, action, value=None):
+        if action not in ("status", "history", "files"): raise ValueError("无效的 Git 请求。")
+        if action == "history" and (type(value) is not int or not 0 <= value <= 100000): raise ValueError("无效的历史页码。")
+        if action == "files" and (not isinstance(value, str) or not re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", value)): raise ValueError("无效的提交标识。")
+        env = {key: val for key, val in os.environ.items() if key.upper() not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES")}
+        env.update(GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0", GIT_NO_LAZY_FETCH="1", LC_ALL="C")
+        def run(args):
+            # Spool subprocess output to temporary files so a large worktree does
+            # not build an unbounded Python/JSON buffer. Both files close on error.
+            with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as error:
+                try:
+                    result = subprocess.run(["git", "--no-pager", "-c", "core.fsmonitor=false", "-c", "log.showSignature=false", "-c", "color.ui=false", "-c", "i18n.logOutputEncoding=UTF-8", "-C", self.root] + args, stdout=output, stderr=error, env=env, timeout=8)
+                except FileNotFoundError: raise ValueError("远程主机未找到 Git。")
+                except subprocess.TimeoutExpired: raise ValueError("远程 Git 读取超时，请稍后重试。")
+                if output.tell() > 1024 * 1024: raise ValueError("Git 结果过大，请缩小项目范围后重试。")
+                if result.returncode:
+                    error.seek(0)
+                    raise ValueError(error.read(2400).decode("utf-8", "replace").strip()[:600])
+                output.seek(0)
+                return output.read(1024 * 1024).decode("utf-8", "replace")
+        try:
+            prefix = re.sub(r"\r?\n$", "", run(["rev-parse", "--show-prefix"]))
+            if action == "status": data = run(["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all", "--ignore-submodules=none", "--", "."])
+            elif action == "history":
+                try: data = run(["log", "--topo-order", "-z", "--format=%H%x00%P%x00%an%x00%aI%x00%D%x00%s", "--max-count=41", "--skip=" + str(value)] + (["--full-history", "--", "."] if prefix else ["--"]))
+                except ValueError as error:
+                    if "does not have any commits yet" in str(error): data = ""
+                    else: raise
+            else:
+                parents = run(["show", "-s", "--format=%P", value + "^{commit}", "--"]).strip().split()
+                args = ["diff", "--no-relative", "--name-status", "-z", "--no-ext-diff", "--no-textconv", "-M", parents[0], value, "--", "."] if parents else ["diff-tree", "--root", "--no-relative", "--no-commit-id", "-r", "--name-status", "-z", "--no-ext-diff", "--no-textconv", value, "--", "."]
+                data = run(args)
+            value = {"repository": True, "prefix": prefix, "output": data}
+            if len(json.dumps(value, ensure_ascii=True)) > MAX_MESSAGE - 256: raise ValueError("Git 结果过大，请缩小项目范围后重试。")
+            return value
+        except ValueError as error:
+            if "not a git repository" in str(error) or "must be run in a work tree" in str(error): return {"repository": False, "prefix": "", "output": ""}
+            raise
+
     def entry_path(self, relative):
         if not relative or relative == ".": raise ValueError("不能删除或重命名项目根目录。")
         self.resolve(os.path.dirname(relative))
@@ -544,6 +583,7 @@ def main():
         try:
             op = message["op"]
             if op == "directory": value = worker.directory(message.get("path", ""), message.get("offset", 0))
+            elif op == "git": value = worker.git(message.get("action"), message.get("value"))
             elif op == "stat": value = worker.metadata(message["path"])
             elif op == "read": value = worker.read(message["path"], message["offset"], message["length"])
             elif op == "preview": value = worker.preview(message["path"], message.get("page", 0))

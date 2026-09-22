@@ -288,11 +288,11 @@ export function App() {
     <div className="titlebar">
       <div className="titlebar-brand"><span className="brand-mark"><i /><i /><i /><i /></span><span>Project Grid</span><span className="titlebar-divider" /> <span className="titlebar-subtitle">项目矩阵</span></div>
       <div className="titlebar-space" />
-      {!focusedId && <div className="titlebar-tools">
-        <div className="search-input"><MagnifyingGlass size={16} /><input ref={queryInput} placeholder="搜索项目或路径…" aria-label="搜索项目" value={query} onChange={e => setQuery(e.target.value)} />{query ? <IconButton label="清除搜索" onClick={() => setQuery('')}><X size={13} /></IconButton> : <kbd>Ctrl K</kbd>}</div>
-        <button className="button primary" onClick={() => setAddOpen(true)}><FolderSimplePlus size={17} />添加项目</button>
+      <div className="titlebar-tools">
+        {!focusedId && <><div className="search-input"><MagnifyingGlass size={16} /><input ref={queryInput} placeholder="搜索项目或路径…" aria-label="搜索项目" value={query} onChange={e => setQuery(e.target.value)} />{query ? <IconButton label="清除搜索" onClick={() => setQuery('')}><X size={13} /></IconButton> : <kbd>Ctrl K</kbd>}</div>
+        <button className="button primary" onClick={() => setAddOpen(true)}><FolderSimplePlus size={17} />添加项目</button></>}
         <IconButton label="工作台设置" className={updates?.status === 'ready' ? 'update-ready' : ''} onClick={() => setSettingsOpen(true)}><GearSix size={19} /></IconButton>
-      </div>}
+      </div>
       <div className="window-actions"><IconButton label="最小化" onClick={() => api.minimize()}><Minus size={16} /></IconButton><IconButton label="最大化或还原" onClick={() => api.maximize()}><Square size={12} /></IconButton><IconButton label="关闭窗口" className="window-close" onClick={() => api.close()}><X size={17} /></IconButton></div>
     </div>
     <div className="workspace-layout">
@@ -302,8 +302,7 @@ export function App() {
         expandedPaths={expandedByProject[focus.id] ?? ['']} selectedFile={previewFile?.projectId === focus.id ? previewFile.path : null}
         onCollapse={() => setPreference({ explorerCollapsed: !settings.explorerCollapsed })}
         onExpandedChange={paths => setExpandedByProject(value => ({ ...value, [focus.id]: paths }))}
-        onSelectFile={async path => { if (previewFile?.projectId === focus.id && previewFile.path === path) return; if (await allowNavigation()) setPreviewFile({ projectId: focus.id, path }); }} onReturn={returnToGrid}
-        onSettings={() => setSettingsOpen(true)} />}
+        onSelectFile={async path => { if (previewFile?.projectId === focus.id && previewFile.path === path) return; if (await allowNavigation()) setPreviewFile({ projectId: focus.id, path }); }} onReturn={returnToGrid} />}
       <main className="main-workspace">
         {workspace.warning && <div className="workspace-warning"><Info size={15} />{workspace.warning}</div>}
         {focusedId && previewFile?.projectId === focusedId && <Suspense fallback={null}><FilePreview key={`${focusedId}:${previewFile.path}`} projectId={focusedId} filePath={previewFile.path} onClose={async () => { if (await allowNavigation()) setPreviewFile(null); }} onOpenLink={target => openTerminalLink(focusedId, target)} onError={reportError} registerGuard={registerEditorGuard} /></Suspense>}

@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import {
   ArrowLeft, ArrowsInLineVertical, ArrowClockwise, BracketsCurly,
   CaretDown, CaretRight, File, FileCode, FileText, Folder, FolderOpen,
-  GearSix, LinkSimple, SidebarSimple, SpinnerGap, Image as ImageIcon, FilmStrip, FilePlus, FolderPlus, Clipboard,
+  GearSix, GitBranch, LinkSimple, SidebarSimple, SpinnerGap, Image as ImageIcon, FilmStrip, FilePlus, FolderPlus, Clipboard,
 } from '@phosphor-icons/react';
 import type { DirectoryListing, FileEntry, Project } from './types';
 import { useExplorerFileActions } from './ExplorerFileActions';
+import { GitBadge, GitPanel } from './GitPanel';
+import { gitDecorations, gitMark, type GitDecoration } from './git-status';
+import { useGitStatus } from './useGitStatus';
 
 export function FileIcon({ entry, open = false }: { entry: FileEntry; open?: boolean }) {
   if (entry.kind === 'directory') return open ? <FolderOpen className="file-icon folder-icon" size={16} weight="duotone" /> : <Folder className="file-icon folder-icon" size={16} weight="duotone" />;
@@ -46,6 +49,7 @@ type NodeProps = {
   revision: number; enabled: boolean; selectedFile: string | null;
   onToggle: (path: string) => void; onSelect: (path: string) => void;
   selected: Set<string>; choose: (entry: FileEntry, event: MouseEvent) => boolean; contextMenu: (entry: FileEntry, event: MouseEvent) => void;
+  decorations: Map<string, GitDecoration>;
 };
 
 function TreeNode(props: NodeProps) {
@@ -57,6 +61,7 @@ function TreeNode(props: NodeProps) {
   const [loading, setLoading] = useState(false);
   const [pages, setPages] = useState(1);
   const root = depth === 0;
+  const decoration = props.decorations.get(entry.path);
   const requestRefresh = useRef<(() => void) | null>(null);
   const lastRevision = useRef(revision);
 
@@ -96,7 +101,7 @@ function TreeNode(props: NodeProps) {
   return <div className="tree-node" data-directory-path={isDirectory ? entry.path : undefined}>
     <button className={`tree-row ${root ? 'tree-root' : ''} ${selected.has(entry.path) || !selected.size && !isDirectory && selectedFile === entry.path ? 'file-selected' : ''}`}
       role="treeitem" aria-expanded={isDirectory ? open : undefined} aria-selected={selected.has(entry.path)}
-      aria-level={depth + 1} aria-label={entry.name} title={entry.path || entry.name} data-node-path={entry.path} data-node-kind={entry.kind}
+      aria-level={depth + 1} aria-label={entry.name} title={`${entry.path || entry.name}${decoration ? ` · ${decoration.title}` : ''}`} data-node-path={entry.path} data-node-kind={entry.kind} data-git-tone={decoration ? gitMark(decoration.code).tone : undefined}
       style={{ paddingLeft: 10 + depth * 15 }}
       onClick={event => { if (!choose(entry, event)) { if (isDirectory) onToggle(entry.path); else onSelect(entry.path); } }}
       onContextMenu={event => contextMenu(entry, event)}
@@ -104,6 +109,7 @@ function TreeNode(props: NodeProps) {
       <span className="tree-chevron">{isDirectory && (open ? <CaretDown size={12} /> : <CaretRight size={12} />)}</span>
       <FileIcon entry={entry} open={open} />
       <span className="tree-filename">{entry.name}</span>
+      {decoration && (isDirectory ? <span className={`git-badge git-${gitMark(decoration.code).tone}`} aria-hidden="true" title={decoration.title}>•</span> : <GitBadge code={decoration.code} />)}
       {loading && !listing && <SpinnerGap size={12} className="loading-spinner" />}
     </button>
     {open && <div role="group" className="tree-children">
@@ -117,20 +123,23 @@ function TreeNode(props: NodeProps) {
   </div>;
 }
 
-export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFile, onCollapse, onExpandedChange, onSelectFile, onReturn, onSettings, onFilesRemoved, onPathRenamed }: {
+export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFile, onCollapse, onExpandedChange, onSelectFile, onReturn, onFilesRemoved, onPathRenamed }: {
   project: Project; collapsed: boolean; expandedPaths: string[]; selectedFile: string | null;
   onCollapse: () => void; onExpandedChange: (paths: string[]) => void; onSelectFile: (path: string) => void;
-  onReturn: () => void; onSettings: () => void;
+  onReturn: () => void;
   onFilesRemoved: (paths: string[]) => void; onPathRenamed: (oldPath: string, newPath: string) => void;
 }) {
   const [revision, setRevision] = useState(0);
+  const [gitOpen, setGitOpen] = useState(false), [gitRevision, setGitRevision] = useState(0);
+  const git = useGitStatus(project.id, !collapsed, revision);
+  const decorations = useMemo(() => gitDecorations(git.status), [git.status]);
   const location = project.kind === 'ssh' ? `${project.ssh?.host}:${project.path}` : project.path;
   const expanded = new Set(expandedPaths);
   const files = useExplorerFileActions(project, directory => { setRevision(value => value + 1); if (directory !== undefined) onExpandedChange([...new Set([...expandedPaths, directory])]); }, onSelectFile, onFilesRemoved, onPathRenamed);
   useEffect(() => {
     if (collapsed) return;
     const refresh = () => setRevision(value => value + 1);
-    const timer = setInterval(() => { if (document.hasFocus()) refresh(); }, 3000);
+    const timer = setInterval(() => { if (document.hasFocus() && document.visibilityState === 'visible') refresh(); }, 3000);
     window.addEventListener('focus', refresh);
     refresh();
     return () => { clearInterval(timer); window.removeEventListener('focus', refresh); };
@@ -143,15 +152,16 @@ export function ProjectExplorer({ project, collapsed, expandedPaths, selectedFil
       <button className="icon-button sidebar-toggle" onClick={onCollapse} title={collapsed ? '展开目录栏 · Ctrl+B' : '收起目录栏 · Ctrl+B'} aria-label={collapsed ? '展开目录栏' : '收起目录栏'} aria-expanded={!collapsed}><SidebarSimple size={18} /></button>
     </div>
     <div className="explorer-content" hidden={collapsed}>
-      <div className="explorer-toolbar" onPointerDown={() => window.projectGrid.fileTreeFocus(project.id, false)}><div className="explorer-heading"><span>资源管理器</span><span className="explorer-path" title={location}>{location}</span></div><div className="explorer-tools"><button className="icon-button" aria-label="粘贴文件" title="粘贴到选中目录 · Ctrl+V" onClick={files.pasteHere}><Clipboard size={15} /></button><button className="icon-button" aria-label="新建文件" title="新建文件" onClick={() => files.openCreate('file')}><FilePlus size={15} /></button><button className="icon-button" aria-label="新建文件夹" title="新建文件夹" onClick={() => files.openCreate('directory')}><FolderPlus size={15} /></button><button className="icon-button" aria-label="刷新项目目录" title="刷新项目目录" onClick={() => setRevision(r => r + 1)}><ArrowClockwise size={15} /></button><button className="icon-button" aria-label="折叠所有文件夹" title="折叠所有文件夹" onClick={() => onExpandedChange([''])}><ArrowsInLineVertical size={15} /></button></div></div>
-      <div ref={files.tree} className="file-tree" role="tree" tabIndex={0} aria-multiselectable="true" aria-label={`${project.name} 的文件目录`} onKeyDownCapture={files.onKeyDown} onClick={files.onBackgroundClick} onContextMenu={files.onBackgroundContextMenu}
+      {gitOpen ? <button className="explorer-section-toggle" aria-expanded="false" onClick={() => setGitOpen(false)}><CaretRight size={12} />资源管理器</button> : <div className="explorer-toolbar" onPointerDown={() => window.projectGrid.fileTreeFocus(project.id, false)}><div className="explorer-heading"><span>资源管理器</span><span className="explorer-path" title={location}>{location}</span></div><div className="explorer-tools"><button className="icon-button" aria-label="粘贴文件" title="粘贴到选中目录 · Ctrl+V" onClick={files.pasteHere}><Clipboard size={15} /></button><button className="icon-button" aria-label="新建文件" title="新建文件" onClick={() => files.openCreate('file')}><FilePlus size={15} /></button><button className="icon-button" aria-label="新建文件夹" title="新建文件夹" onClick={() => files.openCreate('directory')}><FolderPlus size={15} /></button><button className="icon-button" aria-label="刷新项目目录" title="刷新项目目录" onClick={() => setRevision(r => r + 1)}><ArrowClockwise size={15} /></button><button className="icon-button" aria-label="折叠所有文件夹" title="折叠所有文件夹" onClick={() => onExpandedChange([''])}><ArrowsInLineVertical size={15} /></button></div></div>}
+      <div ref={files.tree} className="file-tree" hidden={gitOpen} role="tree" tabIndex={0} aria-multiselectable="true" aria-label={`${project.name} 的文件目录`} onKeyDownCapture={files.onKeyDown} onClick={files.onBackgroundClick} onContextMenu={files.onBackgroundContextMenu}
         onFocusCapture={() => window.projectGrid.fileTreeFocus(project.id, true)} onBlurCapture={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) window.projectGrid.fileTreeFocus(project.id, false); }}>
-        <TreeNode projectId={project.id} entry={{ name: project.name, path: '', kind: 'directory' }} depth={0} expanded={expanded} revision={revision} enabled={!collapsed} selectedFile={selectedFile} onToggle={toggle} onSelect={onSelectFile} selected={files.selected} choose={files.choose} contextMenu={files.contextMenu} />
+        <TreeNode projectId={project.id} entry={{ name: project.name, path: '', kind: 'directory' }} depth={0} expanded={expanded} revision={revision} enabled={!collapsed && !gitOpen} selectedFile={selectedFile} onToggle={toggle} onSelect={onSelectFile} selected={files.selected} choose={files.choose} contextMenu={files.contextMenu} decorations={decorations} />
       </div>
-      {files.status}
+      {gitOpen && !collapsed && <GitPanel projectId={project.id} status={git.status} error={git.error} loading={git.loading} revision={gitRevision} onRefresh={() => { git.refresh(); setGitRevision(value => value + 1); }} onOpen={onSelectFile} />}
+      {!gitOpen && files.status}
     </div>
     <div className="explorer-actions">
-      <button className="explorer-action" onClick={onSettings} title="工作台设置" aria-label="工作台设置"><GearSix size={18} /><span>设置</span></button>
+      <button className="explorer-action" onClick={() => { window.projectGrid.fileTreeFocus(project.id, false); setGitOpen(collapsed ? true : !gitOpen); if (collapsed) onCollapse(); }} title="Git 历史与未提交更改" aria-label="Git 历史" aria-pressed={gitOpen && !collapsed}><GitBranch size={18} /><span>Git 历史</span>{!!git.status?.total && <span className="git-action-count">{git.status.total}</span>}</button>
     </div>
     {files.overlays}
   </aside>;

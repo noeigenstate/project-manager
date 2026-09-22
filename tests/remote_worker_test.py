@@ -2,6 +2,7 @@ import base64
 import importlib.util
 import json
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -26,6 +27,55 @@ class RemoteFilesTest(unittest.TestCase):
     def tearDown(self):
         self.worker.stop()
         self.temp.cleanup()
+
+    def test_git_reads_status_history_and_commit_paths_without_mutation(self):
+        def git(*args):
+            return subprocess.run(["git", "-C", str(self.root), *args], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
+        self.assertFalse(self.worker.git("status")["repository"])
+        git("init", "-b", "main")
+        git("config", "user.name", "测试 User")
+        git("config", "user.email", "test@example.invalid")
+        git("config", "core.autocrlf", "false")
+        self.assertEqual(self.worker.git("history", 0)["output"], "")
+        (self.root / "sub").mkdir()
+        (self.root / "sub/中文 文件.txt").write_text("base", encoding="utf-8")
+        (self.root / "outside.txt").write_text("outside", encoding="utf-8")
+        git("add", "."); git("commit", "-m", "第一次提交")
+        commit = git("rev-parse", "HEAD").decode().strip()
+        (self.root / "sub/中文 文件.txt").write_text("changed", encoding="utf-8")
+        (self.root / "新建.txt").write_text("new", encoding="utf-8")
+        before = (self.root / ".git/index").read_bytes()
+        status = self.worker.git("status")
+        self.assertIn("sub/中文 文件.txt\0", status["output"])
+        self.assertIn("? 新建.txt\0", status["output"])
+        self.assertEqual((self.root / ".git/index").read_bytes(), before)
+        self.assertIn(commit + "\0", self.worker.git("history", 0)["output"])
+        self.assertIn("第一次提交", self.worker.git("history", 0)["output"])
+        self.assertIn("sub/中文 文件.txt\0", self.worker.git("files", commit)["output"])
+        self.worker.root = str(self.root / "sub")
+        git("config", "diff.relative", "true")
+        self.assertEqual(self.worker.git("status")["prefix"], "sub/")
+        self.assertNotIn("outside.txt", self.worker.git("files", commit)["output"])
+        with self.assertRaises(ValueError): self.worker.git("files", "--output=outside")
+        with self.assertRaises(ValueError): self.worker.git("history", -1)
+
+    def test_signed_history_ignores_user_signature_display_setting(self):
+        def git(*args):
+            return subprocess.run(["git", "-C", str(self.root), *args], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.decode().strip()
+        git("init", "-b", "main")
+        (self.root / "signed.txt").write_text("signed change", encoding="utf-8")
+        git("add", ".")
+        tree = git("write-tree")
+        raw = f"tree {tree}\nauthor Test <test@example.invalid> 1700000000 +0000\ncommitter Test <test@example.invalid> 1700000000 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n invalid-test-signature\n -----END PGP SIGNATURE-----\n\nsigned fixture\n"
+        obj = Path(self.temp.name) / "signed-commit"
+        obj.write_bytes(raw.encode())
+        commit = git("hash-object", "-t", "commit", "-w", str(obj))
+        git("update-ref", "refs/heads/main", commit)
+        git("config", "log.showSignature", "true")
+        fields = self.worker.git("history", 0)["output"].split("\0")
+        self.assertEqual(fields[0], commit)
+        self.assertEqual(fields[5], "signed fixture")
+        self.assertEqual(self.worker.git("files", commit)["output"], "A\0signed.txt\0")
 
     def test_directory_and_media_reads(self):
         (self.root / "src").mkdir()

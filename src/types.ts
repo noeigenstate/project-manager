@@ -19,6 +19,11 @@ export type FileEntry = { name: string; path: string; kind: 'directory' | 'file'
 export type FileProgress = { projectId: string; text: string } | null;
 export type VoiceState = { phase: 'missing' | 'downloading' | 'ready' | 'transcribing' | 'error'; ready: boolean; percent: number; error: string | null; model: string; downloadBytes: number };
 export type DirectoryListing = { path: string; entries: FileEntry[]; total: number; nextOffset: number | null };
+export type GitChange = { path: string; index: string; worktree: string; originalPath: string | null; submodule: boolean; conflict: boolean; untracked: boolean };
+export type GitStatus = { repository: boolean; branch: string; head: string; detached: boolean; unborn: boolean; upstream: string | null; ahead: number | null; behind: number | null; files: GitChange[]; total: number; staged: number; unstaged: number; conflicts: number; truncated: boolean };
+export type GitCommit = { hash: string; parents: string[]; author: string; date: string; refs: string; subject: string };
+export type GitHistory = { commits: GitCommit[]; nextOffset: number | null };
+export type GitCommitFiles = { files: { path: string; status: string; originalPath: string | null }[]; total: number; truncated: boolean };
 export type TextPage = { index: number; count: number; byteStart: number; byteEnd: number; encoding: string };
 export type AppUpdateState = { supported: boolean; currentVersion: string; status: 'unavailable' | 'idle' | 'checking' | 'current' | 'downloading' | 'ready' | 'error'; version: string | null; percent: number; error: string | null };
 export type FilePreview = { path: string; name: string; size: number; modifiedAt: number; revision: string } & (
@@ -46,6 +51,9 @@ export type Bridge = {
   acknowledgeAll(): Promise<Result<void>>;
   settings(patch: Partial<Settings>): Promise<Result<void>>;
   listDirectory(id: string, relativePath?: string, offset?: number): Promise<Result<DirectoryListing>>;
+  gitStatus(id: string): Promise<Result<GitStatus>>;
+  gitHistory(id: string, offset?: number): Promise<Result<GitHistory>>;
+  gitFiles(id: string, hash: string): Promise<Result<GitCommitFiles>>;
   createEntry(id: string, directory: string, name: string, kind: 'file' | 'directory'): Promise<Result<{ path: string; kind: string }>>;
   renameEntry(id: string, relative: string, name: string): Promise<Result<{ path: string }>>;
   deleteEntries(id: string, paths: string[]): Promise<Result<{ deleted: string[] }>>;

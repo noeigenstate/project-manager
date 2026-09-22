@@ -124,6 +124,9 @@ jobs:
       - name: Verify internal navigation and removed external editor and manual completion actions
         run: npm run test:navigation -- --packaged
 
+      - name: Verify Git status, history and explorer switching for local and SSH projects
+        run: npm run test:git -- --packaged
+
       - name: Verify image paths use text-only clipboard data and latest-copy ordering
         run: npm run test:clipboard -- --packaged
 
@@ -201,6 +204,8 @@ jobs:
             .test-output/composer-*/results.json
             .test-output/path-refresh-*/*.png
             .test-output/path-refresh-*/results.json
+            .test-output/git-*/*.png
+            .test-output/git-*/results.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
@@ -247,6 +252,7 @@ jobs:
           Install Codex CLI on the computer or Linux SSH host where your project runs.
 
           - Multiple project terminals with completion alerts.
+          - The expanded project's sidebar replaces Settings with Git History. Switch between the file tree and staged, working-tree and conflict changes; browse committed history with merge graphs and changed-file lists for local and Linux SSH projects. File badges refresh automatically while the sidebar is visible, without altering the index or running terminals. Settings remains in the top bar.
           - New and restarted local terminals pick up newly installed tools from Windows PATH without restarting Project Grid. Existing injected toolchain paths keep their priority; other terminals remain untouched.
           - Clear liquid-glass title/status bars, sidebar and terminal shells reveal the background with thin optical rims and real SVG backdrop refraction. Text and ANSI colors remain separate from the lens.
           - All themes include an opaque Reduced Transparency fallback. Packaged tests compare refraction pixels and exercise 6/16 cards with six streaming terminals.
