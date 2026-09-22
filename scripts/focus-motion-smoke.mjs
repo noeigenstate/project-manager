@@ -71,7 +71,9 @@ try {
   await panel.locator('.panel-meta').click();
   assert.equal(await page.locator('.focus-mode').count(), 0, 'the footer does not expand the card');
   await panel.evaluate(panel => { globalThis.motionTerminal = panel.querySelector('.terminal-host'); });
-  const outputRow = panel.locator('.xterm-rows > div').filter({ hasText: 'PROJECT GRID' }).first();
+  // The welcome banner can legitimately scroll out of a small terminal after
+  // multiline input. Select the current prompt, which remains on screen.
+  const outputRow = panel.locator('.xterm-rows > div').filter({ hasText: /^PS / }).last();
   const rowBox = await outputRow.boundingBox();
   await page.mouse.move(rowBox.x + 12, rowBox.y + rowBox.height / 2); await page.mouse.down();
   await page.mouse.move(rowBox.x + 108, rowBox.y + rowBox.height / 2, { steps: 6 }); await page.mouse.up();
